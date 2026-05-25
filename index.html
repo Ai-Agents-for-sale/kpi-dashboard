@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>מרכז שליטה - KPI ותחזיות</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0e14; --bg-2:#0f1521; --panel:#141b2b; --panel-2:#1a2233;
+  --line:#243047; --line-soft:#1c2535;
+  --txt:#e8eef7; --txt-dim:#8a98b0; --txt-faint:#5d6a82;
+  --accent:#3ddc97; --accent-2:#2bb87e; --accent-soft:rgba(61,220,151,.12);
+  --blue:#4d9fff; --blue-soft:rgba(77,159,255,.12);
+  --amber:#ffb74d; --amber-soft:rgba(255,183,77,.12);
+  --red:#ff6b6b; --red-soft:rgba(255,107,107,.12);
+  --purple:#a78bfa; --purple-soft:rgba(167,139,250,.12);
+  --shadow:0 8px 30px rgba(0,0,0,.4); --radius:16px; --radius-sm:10px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{font-family:'Heebo',sans-serif;
+  background:radial-gradient(1200px 600px at 90% -10%, rgba(77,159,255,.08), transparent 60%),
+    radial-gradient(1000px 500px at 0% 0%, rgba(61,220,151,.06), transparent 55%), var(--bg);
+  color:var(--txt);-webkit-font-smoothing:antialiased;line-height:1.5;overflow-x:hidden}
+input,button,select{font-family:inherit}
+
+.app{display:flex;min-height:100vh}
+.sidebar{width:240px;flex-shrink:0;background:linear-gradient(180deg,var(--bg-2),var(--bg));
+  border-left:1px solid var(--line-soft);padding:22px 14px;display:flex;flex-direction:column;gap:6px;
+  position:sticky;top:0;height:100vh;overflow-y:auto}
+.brand{display:flex;align-items:center;gap:11px;padding:4px 8px 18px}
+.brand-mark{width:38px;height:38px;border-radius:11px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--accent),var(--blue));display:grid;place-items:center;
+  font-weight:800;color:#06121e;font-size:20px;box-shadow:0 4px 14px rgba(61,220,151,.3)}
+.brand-txt b{font-family:'Rubik';font-size:16px;font-weight:700;display:block;letter-spacing:-.3px}
+.brand-txt span{font-size:11px;color:var(--txt-faint);font-weight:500}
+
+/* GLOBAL GOAL BAR */
+.goalbar{background:linear-gradient(135deg,var(--accent-soft),rgba(77,159,255,.05));
+  border:1px solid var(--line);border-radius:13px;padding:11px 13px;margin-bottom:8px}
+.goalbar .gb-lbl{font-size:11px;color:var(--txt-dim);font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.goalbar .gb-lbl svg{width:13px;height:13px;color:var(--accent)}
+.goalbar .gb-field{display:flex;align-items:center;background:var(--bg-2);border:1px solid var(--line);
+  border-radius:9px;overflow:hidden}
+.goalbar .gb-field span{padding:0 9px;color:var(--txt-faint);font-size:12px;font-weight:600}
+.goalbar .gb-field input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--accent);
+  font-family:'Rubik';font-weight:700;font-size:16px;padding:8px 4px 8px 9px;direction:ltr;text-align:right}
+
+.nav-item{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:11px;cursor:pointer;
+  color:var(--txt-dim);font-weight:500;font-size:14.5px;transition:.16s;border:1px solid transparent}
+.nav-item:hover{background:var(--panel);color:var(--txt)}
+.nav-item.active{background:linear-gradient(135deg,var(--accent-soft),rgba(77,159,255,.06));
+  color:var(--txt);border-color:var(--line)}
+.nav-item.active .ni-ico{color:var(--accent)}
+.ni-ico{width:20px;height:20px;flex-shrink:0;color:var(--txt-faint);transition:.16s}
+.nav-sep{height:1px;background:var(--line-soft);margin:10px 8px}
+.nav-foot{margin-top:auto;padding:8px}
+.nav-foot button{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel);color:var(--txt-dim);font-size:12.5px;font-weight:500;cursor:pointer;
+  transition:.16s;display:flex;align-items:center;justify-content:center;gap:7px}
+.nav-foot button:hover{background:var(--panel-2);color:var(--txt)}
+
+.main{flex:1;min-width:0;padding:30px 38px 60px;max-width:1400px}
+.page-head{margin-bottom:22px}
+.page-head h1{font-family:'Rubik';font-size:27px;font-weight:700;letter-spacing:-.5px}
+.page-head p{color:var(--txt-dim);font-size:14px;margin-top:5px;max-width:640px}
+
+.topbar{display:none;align-items:center;justify-content:space-between;padding:12px 16px;
+  background:var(--bg-2);border-bottom:1px solid var(--line-soft);position:sticky;top:0;z-index:50;gap:10px}
+.topbar .brand{padding:0}
+.topbar .gb-field-m{display:flex;align-items:center;background:var(--panel);border:1px solid var(--line);
+  border-radius:9px;overflow:hidden;flex:1;max-width:160px}
+.topbar .gb-field-m span{padding:0 8px;color:var(--txt-faint);font-size:11px}
+.topbar .gb-field-m input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--accent);
+  font-family:'Rubik';font-weight:700;font-size:14px;padding:7px 4px;direction:ltr;text-align:right}
+.burger{width:40px;height:40px;border-radius:11px;border:1px solid var(--line);background:var(--panel);
+  display:grid;place-items:center;cursor:pointer;color:var(--txt);flex-shrink:0}
+
+.grid{display:grid;gap:16px}
+.cols-4{grid-template-columns:repeat(4,1fr)}
+.cols-5{grid-template-columns:repeat(5,1fr)}
+.cols-3{grid-template-columns:repeat(3,1fr)}
+.cols-2{grid-template-columns:repeat(2,1fr)}
+.card{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);
+  border-radius:var(--radius);padding:20px;position:relative;overflow:hidden}
+.card-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;flex-wrap:wrap}
+.card-h h3{font-family:'Rubik';font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card-h .sub{font-size:12px;color:var(--txt-faint)}
+
+.kpi{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);
+  border-radius:var(--radius);padding:18px 18px 16px;position:relative;overflow:hidden;transition:.2s}
+.kpi:hover{transform:translateY(-2px)}
+.kpi::before{content:'';position:absolute;top:0;right:0;width:100%;height:3px;background:var(--bar,var(--accent));opacity:.8}
+.kpi .lbl{font-size:12.5px;color:var(--txt-dim);font-weight:500;display:flex;align-items:center;gap:7px}
+.kpi .lbl-ico{width:15px;height:15px;color:var(--bar,var(--accent));flex-shrink:0}
+.kpi .val{font-family:'Rubik';font-size:27px;font-weight:700;margin-top:9px;letter-spacing:-.5px;
+  white-space:nowrap;direction:ltr;text-align:right}
+.kpi .val .cur{font-size:15px;color:var(--txt-dim);font-weight:500}
+.kpi .meta{font-size:11.5px;color:var(--txt-faint);margin-top:6px}
+
+.kpi-table{width:100%;border-collapse:collapse}
+.kpi-table th{text-align:right;font-size:11.5px;color:var(--txt-faint);font-weight:600;
+  padding:0 6px 12px;text-transform:uppercase;letter-spacing:.5px}
+.kpi-table td{padding:7px 6px;border-top:1px solid var(--line-soft);vertical-align:middle}
+.kpi-row-lbl{display:flex;align-items:center;gap:11px}
+.kpi-row-ico{width:34px;height:34px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;
+  background:var(--ic-bg,var(--accent-soft))}
+.kpi-row-ico svg{width:17px;height:17px;color:var(--ic,var(--accent))}
+.kpi-row-lbl b{font-size:14px;font-weight:500;display:block}
+.kpi-row-lbl small{font-size:11.5px;color:var(--txt-faint)}
+
+.field{position:relative;display:inline-flex;align-items:center;background:var(--bg-2);
+  border:1px solid var(--line);border-radius:10px;transition:.15s;overflow:hidden}
+.field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.field input{width:100%;background:transparent;border:none;outline:none;color:var(--txt);
+  font-size:15px;font-weight:600;padding:9px 12px;direction:ltr;text-align:right;font-family:'Rubik'}
+.field .affix{padding:0 11px;color:var(--txt-faint);font-size:13px;font-weight:600;background:var(--panel-2);
+  align-self:stretch;display:flex;align-items:center;border-right:1px solid var(--line)}
+.field.w-sm{width:130px}
+.field.w-md{width:100%}
+
+.editable-cell{display:flex;justify-content:flex-end}
+
+/* editable label */
+.lbl-edit{background:transparent;border:none;color:inherit;font:inherit;font-size:14px;font-weight:500;
+  padding:1px 3px;border-radius:5px;border-bottom:1px dashed transparent;width:auto;max-width:100%;
+  field-sizing:content;box-sizing:content-box}
+.lbl-edit:hover{border-bottom-color:var(--line)}
+.lbl-edit:focus{outline:none;background:var(--bg-2);border-bottom-color:var(--accent)}
+.title-edit{font-family:'Rubik';font-size:16px;font-weight:600;max-width:100%;width:auto;min-width:40px}
+.title-edit:hover{border-bottom-color:var(--line)}
+
+.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:20px;font-size:12px;font-weight:600}
+.tag.green{background:var(--accent-soft);color:var(--accent)}
+.tag.blue{background:var(--blue-soft);color:var(--blue)}
+.tag.amber{background:var(--amber-soft);color:var(--amber)}
+.tag.red{background:var(--red-soft);color:var(--red)}
+.tag.purple{background:var(--purple-soft);color:var(--purple)}
+
+/* daily/monthly breakdown rows */
+.brk{display:flex;flex-direction:column;gap:1px}
+.brk-row{display:flex;align-items:center;padding:13px 6px;border-bottom:1px solid var(--line-soft);gap:10px}
+.brk-row:last-child{border-bottom:none}
+.brk-ico{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:var(--bg-2)}
+.brk-ico svg{width:18px;height:18px;color:var(--bi,var(--accent))}
+.brk-name{flex:1;min-width:0}
+.brk-name b{font-size:14px;font-weight:500;display:block}
+.brk-name small{font-size:11.5px;color:var(--txt-faint)}
+.brk-vals{display:flex;gap:18px;text-align:left}
+.brk-v{min-width:74px;text-align:center}
+.brk-v .vv{font-family:'Rubik';font-size:18px;font-weight:700;direction:ltr;display:block}
+.brk-v .vl{font-size:10.5px;color:var(--txt-faint);text-transform:uppercase;letter-spacing:.4px}
+.brk-v.daily .vv{color:var(--blue)}
+.brk-v.monthly .vv{color:var(--txt)}
+
+/* breakdown vertical table */
+.brk-table-wrap{overflow-x:auto}
+.brk-table{width:100%;border-collapse:collapse;min-width:560px}
+.brk-table th{padding:0 10px 14px;text-align:center;font-family:'Rubik';font-weight:600;font-size:13.5px;border-bottom:1px solid var(--line)}
+.brk-table th.brk-corner{width:90px}
+.brk-table th .lbl-edit{text-align:center;width:100%;max-width:none;font-family:'Rubik';font-weight:600;font-size:13.5px}
+.brk-trow td{padding:15px 10px;text-align:center;font-family:'Rubik';font-weight:700;font-size:19px;direction:ltr;border-bottom:1px solid var(--line-soft)}
+.brk-trow.daily td{color:var(--blue);font-size:16px}
+.brk-trow .brk-rowlbl{font-family:'Heebo';font-weight:500;font-size:12.5px;color:var(--txt-faint);text-align:right;direction:rtl;white-space:nowrap}
+.brk-trow .brk-rowlbl svg{width:14px;height:14px;vertical-align:-2px;margin-left:4px}
+
+.statlist{display:flex;flex-direction:column;gap:1px}
+.statlist .sl{display:flex;align-items:center;justify-content:space-between;padding:12px 4px;border-bottom:1px solid var(--line-soft);gap:10px}
+.statlist .sl:last-child{border-bottom:none}
+.statlist .sl-l{display:flex;align-items:center;gap:11px}
+.statlist .sl-l .dot{width:9px;height:9px;border-radius:50%;background:var(--d,var(--accent));flex-shrink:0}
+.statlist .sl-l span{font-size:13.5px;color:var(--txt-dim)}
+.statlist .sl-v{font-family:'Rubik';font-weight:700;font-size:15px;direction:ltr;white-space:nowrap}
+
+.notice{background:var(--blue-soft);border:1px solid rgba(77,159,255,.25);border-radius:12px;
+  padding:13px 16px;font-size:13px;color:var(--txt);display:flex;gap:11px;align-items:flex-start;margin-bottom:18px}
+.notice svg{width:18px;height:18px;color:var(--blue);flex-shrink:0;margin-top:1px}
+.notice.warn{background:var(--red-soft);border-color:rgba(255,107,107,.3)}
+.notice.warn svg{color:var(--red)}
+.notice.ok{background:var(--accent-soft);border-color:rgba(61,220,151,.3)}
+.notice.ok svg{color:var(--accent)}
+
+.hint{font-size:12px;color:var(--txt-faint);margin-top:4px}
+.goal-prog{height:12px;border-radius:8px;background:var(--bg-2);overflow:hidden;border:1px solid var(--line-soft);position:relative}
+.goal-prog .fill{height:100%;border-radius:8px;background:linear-gradient(90deg,var(--accent),var(--blue));transition:width .6s}
+.goal-prog .fill.warn{background:linear-gradient(90deg,var(--amber),var(--red))}
+
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.delta-pos{color:var(--accent)} .delta-neg{color:var(--red)}
+.hidden{display:none!important}
+
+/* help "?" */
+.help{width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:var(--bg-2);
+  color:var(--txt-faint);font-size:11px;font-weight:700;display:inline-grid;place-items:center;cursor:pointer;
+  flex-shrink:0;transition:.15s}
+.help:hover{border-color:var(--accent);color:var(--accent)}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;
+  align-items:center;justify-content:center;padding:20px}
+.modal-bg.show{display:flex}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;max-width:440px;
+  width:100%;box-shadow:var(--shadow)}
+.modal h3{font-family:'Rubik';font-size:18px;margin-bottom:12px;display:flex;align-items:center;gap:9px}
+.modal p{font-size:14px;color:var(--txt-dim);line-height:1.7;margin-bottom:10px}
+.modal .formula{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px 14px;
+  font-family:'Rubik';font-size:13.5px;direction:ltr;text-align:left;color:var(--accent);margin:10px 0}
+.modal button{margin-top:8px;background:var(--accent);color:#06121e;border:none;padding:10px 20px;
+  border-radius:9px;font-weight:600;cursor:pointer;font-size:14px;width:100%}
+
+input[type=range]{-webkit-appearance:none;width:100%;height:6px;border-radius:6px;background:var(--bg-2);
+  border:1px solid var(--line-soft);outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:var(--accent);cursor:pointer;border:3px solid var(--bg);box-shadow:0 0 0 1px var(--accent)}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--accent);
+  cursor:pointer;border:3px solid var(--bg)}
+.slider-row{margin-bottom:18px}
+.slider-row .sr-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+.slider-row .sr-h label{font-size:13.5px;color:var(--txt-dim);font-weight:500}
+.slider-row .sr-h b{font-family:'Rubik';font-size:16px;direction:ltr}
+
+.btn{border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px;padding:11px 20px;transition:.15s}
+.btn-primary{background:var(--accent);color:#06121e}
+.btn-ghost{background:var(--panel-2);border:1px solid var(--line);color:var(--txt)}
+.btn-danger{background:var(--red-soft);color:var(--red);border:1px solid rgba(255,107,107,.3)}
+.btn-sm{padding:6px 12px;font-size:12px}
+
+.rep-pill{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:11px;cursor:pointer;
+  background:var(--bg-2);border:1px solid var(--line);font-size:13.5px;font-weight:500;color:var(--txt-dim);transition:.15s}
+.rep-pill:hover{border-color:var(--accent);color:var(--txt)}
+.rep-pill.active{background:var(--accent);color:#06121e;border-color:var(--accent);font-weight:600}
+.rep-pill .av{width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.15);display:grid;place-items:center;font-weight:700;font-size:12px}
+.rep-pill.active .av{background:rgba(0,0,0,.2)}
+
+.toast{position:fixed;bottom:24px;right:24px;z-index:999;background:var(--panel-2);border:1px solid var(--accent);
+  border-radius:12px;padding:13px 18px;font-size:13.5px;font-weight:500;box-shadow:var(--shadow);
+  display:flex;align-items:center;gap:10px;transform:translateY(80px);opacity:0;transition:.3s cubic-bezier(.4,0,.2,1)}
+.toast.show{transform:translateY(0);opacity:1}
+.toast svg{width:18px;height:18px;color:var(--accent)}
+
+@media(max-width:920px){
+  .sidebar{display:none}
+  .topbar{display:flex}
+  .main{padding:18px 14px 84px;max-width:100%}
+  .cols-4{grid-template-columns:repeat(2,1fr)}
+  .cols-5{grid-template-columns:repeat(2,1fr)}
+  .cols-3{grid-template-columns:1fr}
+  .cols-2,.split{grid-template-columns:1fr}
+  .page-head h1{font-size:21px}
+  .field.w-sm{width:120px}
+  .kpi .val{font-size:22px}
+  .brk-vals{gap:10px}.brk-v{min-width:58px}.brk-v .vv{font-size:15px}
+  .kpi-table th:nth-child(3),.kpi-table td:nth-child(3){display:none}
+  .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:60;background:var(--bg-2);
+    border-top:1px solid var(--line);padding:7px 4px;justify-content:space-around}
+  .mobile-nav .mn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px;
+    border-radius:10px;color:var(--txt-faint);cursor:pointer;font-size:10px;font-weight:500}
+  .mobile-nav .mn.active{color:var(--accent)}
+  .mobile-nav .mn svg{width:20px;height:20px}
+}
+.mobile-nav{display:none}
+.drawer-open .sidebar{display:flex;position:fixed;z-index:200;right:0;top:0;width:260px;animation:slidein .2s}
+@keyframes slidein{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.drawer-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150}
+.drawer-open .drawer-bg{display:block}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">Z</div><div class="brand-txt"><b>מרכז שליטה</b><span>KPI ותחזיות</span></div></div>
+    <div class="goalbar">
+      <div class="gb-lbl">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
+        יעד רווח תפעולי חודשי
+      </div>
+      <div class="gb-field"><span>₪</span><input type="number" id="globalGoal" oninput="setGlobalGoal(this.value)"></div>
+    </div>
+    <div id="navLinks"></div>
+    <div class="nav-foot"><button onclick="exportConfig()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      גיבוי / ייצוא נתונים</button></div>
+  </aside>
+  <div class="drawer-bg" onclick="closeDrawer()"></div>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <div class="topbar">
+      <div class="burger" onclick="openDrawer()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:21px;height:21px"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></div>
+      <div class="gb-field-m"><span>יעד ₪</span><input type="number" id="globalGoalM" oninput="setGlobalGoal(this.value)"></div>
+      <div class="brand"><div class="brand-mark">Z</div></div>
+    </div>
+    <main class="main" id="content"></main>
+  </div>
+</div>
+<div class="mobile-nav" id="mobileNav"></div>
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()"><div class="modal" id="modalBox"></div></div>
+<div class="toast" id="toast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg><span id="toastMsg"></span></div>
+
+<script>
+/* ============================================================
+   מנוע נתונים מרכזי
+============================================================ */
+const DEFAULTS = {
+  costPerLead:10, answerRate:75, closeRate:14, avgMonths:3, setupFee:1000,
+  salesCommPct:40, retainer:300, fixedCosts:12000, callMin:35, onboardMin:35,
+  onboardCostHr:0, goalProfit:30000, daysMonth:30, workHoursDay:6, workDaysMonth:22, teamSize:2,
+  labels:{}, reps:[
+    {id:1,name:'איש מכירות 1',closeRate:20,commGoal:6000,closedDeals:0,daysPassed:0},
+    {id:2,name:'איש מכירות 2',closeRate:20,commGoal:6000,closedDeals:0,daysPassed:0},
+  ]
+};
+
+const META = {
+  costPerLead:{label:'מחיר לליד', sub:'עלות רכישת פנייה אחת', affix:'₪', icon:'lead', color:'blue'},
+  answerRate:{label:'אחוז מענה לטלפון', sub:'כמה מהלידים עונים', affix:'%', icon:'phone', color:'purple'},
+  closeRate:{label:'אחוז סגירה', sub:'מתוך מי שענה', affix:'%', icon:'conv', color:'green'},
+  avgMonths:{label:'חודשי שימור', sub:'כמה חודשים לקוח נשאר', affix:'חוד׳', icon:'clock', color:'purple'},
+  setupFee:{label:'מחיר הקמה', sub:'תשלום חד-פעמי', affix:'₪', icon:'money', color:'green'},
+  salesCommPct:{label:'עמלת מכירות', sub:'% ממחיר ההקמה', affix:'%', icon:'percent', color:'amber'},
+  retainer:{label:'ריטיינר חודשי', sub:'הכנסה חוזרת', affix:'₪', icon:'repeat', color:'green'},
+  fixedCosts:{label:'הוצאות קבועות', sub:'חודשי, קבוע', affix:'₪', icon:'building', color:'red'},
+  callMin:{label:'אורך שיחת מכירה', sub:'ממוצע בדקות', affix:'דק׳', icon:'phone', color:'blue'},
+  onboardMin:{label:'אורך פגישת אונבורדינג', sub:'לכל לקוח שנסגר', affix:'דק׳', icon:'handshake', color:'amber'},
+  onboardCostHr:{label:'עלות מבצע אונבורדינג', sub:'תשלום לספיר לשעה', affix:'₪/שע׳', icon:'wallet', color:'red'},
+};
+// תוויות חינמיות שניתנות לעריכה גם הן (בפירוק היעד)
+const TEXT_LABELS = {
+  bd_leads:'לידים (פניות)', bd_calls:'שיחות שענו', bd_marketing:'תקציב שיווק',
+  bd_sales:'מכירות (לקוחות)', bd_onboard:'פגישות אונבורדינג', bd_onboardHrs:'שעות אונבורדינג',
+};
+
+let state = loadState();
+
+function loadState(){
+  try{ const s = localStorage.getItem('kpiState_v2');
+    if(s){ const p = JSON.parse(s); return deepMerge(structuredClone(DEFAULTS), p); }
+  }catch(e){}
+  return structuredClone(DEFAULTS);
+}
+function deepMerge(base, over){
+  for(const k in over){
+    if(k==='reps'){ base.reps = over.reps; }
+    else if(over[k] && typeof over[k]==='object' && !Array.isArray(over[k])) base[k]=deepMerge(base[k]||{},over[k]);
+    else base[k]=over[k];
+  }
+  return base;
+}
+function saveState(){ try{ localStorage.setItem('kpiState_v2', JSON.stringify(state)); }catch(e){} }
+
+/* תווית — או מותאמת אישית או ברירת מחדל */
+function L(key){ return (state.labels && state.labels[key]) || (META[key]?.label) || TEXT_LABELS[key] || key; }
+
+/* כותרת ניתנת לעריכה (כרטיסים/מסכים). key ייחודי, def = ברירת מחדל */
+function T(key, def){
+  const val=(state.labels && state.labels['T_'+key]) || def;
+  return `<input class="lbl-edit title-edit" value="${val.replace(/"/g,'&quot;')}" data-lblkey="T_${key}" onchange="setLabel(this)" onclick="this.select()">`;
+}
+
+/* ============================================================
+   מנוע חישוב
+============================================================ */
+function compute(s = state){
+  const answer = s.answerRate/100;
+  const close  = s.closeRate/100;
+  const commPct= s.salesCommPct/100;
+  const effConv = answer*close;                          // המרה אפקטיבית מליד ללקוח
+
+  const revPerClient   = s.setupFee + s.retainer*s.avgMonths;
+  const leadsPerClient = effConv>0 ? 1/effConv : 0;      // לידים ללקוח
+  const callsPerClient = close>0 ? 1/close : 0;          // שיחות שענו ללקוח
+  const onboardPerClient = 1;                            // פגישת אונבורדינג אחת ללקוח
+  const onboardHrsPerClient = s.onboardMin/60;
+
+  const acqCost  = leadsPerClient * s.costPerLead;
+  const commCost = s.setupFee * commPct;
+  const onbCost  = onboardHrsPerClient * s.onboardCostHr;
+  const varCostPerClient = acqCost + commCost + onbCost;
+
+  const grossPerClient = revPerClient - varCostPerClient;
+  const grossMarginPct = revPerClient>0 ? grossPerClient/revPerClient*100 : 0;
+  const cac = varCostPerClient;
+  const ltvCacRatio = cac>0 ? revPerClient/cac : 0;
+
+  const callsPerDayPerRep = s.callMin>0 ? Math.floor((s.workHoursDay*60)/s.callMin) : 0;
+  const callsPerMonthPerRep = callsPerDayPerRep * s.workDaysMonth;
+
+  return {answer,close,effConv,commPct,revPerClient,leadsPerClient,callsPerClient,
+    onboardPerClient,onboardHrsPerClient,acqCost,commCost,onbCost,varCostPerClient,
+    grossPerClient,grossMarginPct,cac,ltvCacRatio,callsPerDayPerRep,callsPerMonthPerRep};
+}
+
+function planFromClients(clients, s = state){
+  const c = compute(s);
+  const revenue   = clients*c.revPerClient;
+  const varCost   = clients*c.varCostPerClient;
+  const gross     = revenue-varCost;
+  const operating = gross - s.fixedCosts;
+  const leads     = clients*c.leadsPerClient;
+  const calls     = clients*c.callsPerClient;
+  const marketing = leads*s.costPerLead;
+  const commTotal = clients*c.commCost;
+  const onboards  = clients*c.onboardPerClient;
+  const onboardHrs= clients*c.onboardHrsPerClient;
+  return {clients,revenue,varCost,gross,operating,leads,calls,marketing,commTotal,onboards,onboardHrs};
+}
+function clientsForProfit(p, s=state){ const c=compute(s); return c.grossPerClient>0 ? (p+s.fixedCosts)/c.grossPerClient : Infinity; }
+function profitFromRevenue(rev, s=state){ const c=compute(s); return planFromClients(c.revPerClient>0?rev/c.revPerClient:0, s); }
+function revenueForProfit(p, s=state){ const c=compute(s); return clientsForProfit(p,s)*c.revPerClient; }
+
+/* פורמט */
+const fmt = n => !isFinite(n)?'∞':Math.round(n).toLocaleString('en-US');
+const fmt1 = n => !isFinite(n)?'∞':(Math.round(n*10)/10).toLocaleString('en-US');
+const money = n => fmt(n);
+
+/* ============================================================
+   אייקונים
+============================================================ */
+const ICONS = {
+  lead:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>',
+  conv:'<polyline points="20 6 9 17 4 12"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+  money:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
+  percent:'<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  repeat:'<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  building:'<rect x="4" y="2" width="16" height="20" rx="1"/><line x1="9" y1="7" x2="9.01" y2="7"/><line x1="15" y1="7" x2="15.01" y2="7"/><line x1="9" y1="12" x2="9.01" y2="12"/>',
+  phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  handshake:'<path d="M11 17l2 2a1 1 0 0 0 1.5-.1l4.4-5.2"/><path d="M14 12l-2.5-2.5a2 2 0 0 0-2.8 0L5 13"/><path d="M2 9l4-4 4 2 4-2 4 4"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
+  user:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  trend:'<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  wallet:'<path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><circle cx="17" cy="14" r="1.5"/>',
+  flag:'<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
+  target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>',
+  arrow:'<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
+  calendar:'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  info:'<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+  plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  trash:'<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+};
+const svg=(n,cls='')=>`<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
+const COLORS={green:'var(--accent)',blue:'var(--blue)',amber:'var(--amber)',red:'var(--red)',purple:'var(--purple)'};
+
+/* ============================================================
+   ראוטינג + יעד גלובלי
+============================================================ */
+let currentPage='dashboard';
+const PAGES={
+  dashboard:{title:'סקירה', icon:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>', render:renderDashboard},
+  goals:{title:'יעדים', icon:ICONS.target, render:renderGoals},
+  sales:{title:'מכירות', icon:ICONS.users, render:renderSales},
+  scenarios:{title:'סימולטור', icon:'<path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/>', render:renderScenarios},
+  settings:{title:'נתוני בסיס', icon:'<circle cx="12" cy="12" r="3"/>', render:renderSettings},
+};
+function setGlobalGoal(v){
+  state.goalProfit = parseFloat(v)||0; saveState();
+  syncGoalInputs();
+  PAGES[currentPage].render();
+}
+function syncGoalInputs(){
+  const a=document.getElementById('globalGoal'), b=document.getElementById('globalGoalM');
+  if(a&&document.activeElement!==a) a.value=state.goalProfit;
+  if(b&&document.activeElement!==b) b.value=state.goalProfit;
+}
+function navigate(page){
+  currentPage=page;
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.page===page));
+  document.querySelectorAll('.mobile-nav .mn').forEach(n=>n.classList.toggle('active',n.dataset.page===page));
+  PAGES[page].render(); closeDrawer(); window.scrollTo(0,0); syncGoalInputs(); autoSizeInputs();
+}
+/* fallback לדפדפנים בלי field-sizing: מגדיל שדות תווית לפי התוכן */
+function autoSizeInputs(){
+  setTimeout(()=>{
+    document.querySelectorAll('.lbl-edit, .title-edit').forEach(inp=>{
+      if(inp.dataset.noauto) return;
+      const cs=getComputedStyle(inp);
+      const span=document.createElement('span');
+      span.style.cssText='position:absolute;visibility:hidden;white-space:pre;font-family:'+cs.fontFamily+';font-size:'+cs.fontSize+';font-weight:'+cs.fontWeight;
+      span.textContent=inp.value||inp.placeholder||'';
+      document.body.appendChild(span);
+      const w=span.offsetWidth+14;
+      document.body.removeChild(span);
+      inp.style.width=Math.min(w, inp.parentElement.offsetWidth||999)+'px';
+    });
+  },0);
+}
+
+/* ============================================================
+   מסך 1 — סקירה
+============================================================ */
+function renderDashboard(){
+  const c=compute();
+  const plan=planFromClients(clientsForProfit(state.goalProfit));
+  const be=clientsForProfit(0), beRev=be*c.revPerClient;
+  document.getElementById('content').innerHTML=`
+  <div class="page-head"><h1>סקירה כללית</h1>
+    <p>תמונת מצב חיה של הכלכלה ליחידת לקוח. כל שינוי בנתוני הבסיס מתעדכן כאן מיידית.</p></div>
+  <div class="grid cols-4" style="margin-bottom:16px">
+    ${kpiTile('הכנסה ללקוח (LTV)','wallet','green',money(c.revPerClient),'₪','הקמה + '+state.avgMonths+' ריטיינרים','ltv')}
+    ${kpiTile('עלות גיוס (CAC)','target','amber',money(c.cac),'₪','שיווק '+fmt(c.acqCost)+' + עמלה '+fmt(c.commCost),'cac')}
+    ${kpiTile('רווח גולמי ללקוח','trend','green',money(c.grossPerClient),'₪',fmt1(c.grossMarginPct)+'% רווחיות','gross')}
+    ${kpiTile('יחס LTV / CAC','flag',c.ltvCacRatio>=3?'green':(c.ltvCacRatio>=1?'amber':'red'),fmt1(c.ltvCacRatio)+'x','',c.ltvCacRatio>=3?'בריא מאוד':(c.ltvCacRatio>=1?'רווחי':'הפסד'),'ltvcac')}
+  </div>
+  <div class="split" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-h"><h3>${T('client_econ','הכלכלה של לקוח בודד')}</h3><span class="sub">לכל לקוח חדש</span></div>
+      <div class="statlist">
+        ${slRow('green','הכנסה כוללת מהלקוח',money(c.revPerClient)+' ₪')}
+        ${slRow('blue',L('costPerLead')+' ('+fmt1(c.leadsPerClient)+' לידים)','−'+money(c.acqCost)+' ₪')}
+        ${slRow('amber','עמלת מכירות ('+state.salesCommPct+'%)','−'+money(c.commCost)+' ₪')}
+        ${slRow('red','אונבורדינג ('+state.onboardMin+' דק׳)','−'+money(c.onbCost)+' ₪')}
+        ${slRow('green','רווח גולמי שנשאר','<b style="color:var(--accent)">'+money(c.grossPerClient)+' ₪</b>')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>נקודת איזון (Break-Even) ${help('be')}</h3><span class="sub">כמה לקוחות רק לכסות הוצאות</span></div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin:6px 0 14px">
+        <span style="font-family:'Rubik';font-size:42px;font-weight:800;color:var(--amber)">${fmt1(be)}</span>
+        <span style="color:var(--txt-dim);font-size:15px">לקוחות בחודש</span></div>
+      <div class="statlist">
+        ${slRow('amber','מחזור בנקודת איזון',money(beRev)+' ₪')}
+        ${slRow('red','הוצאות קבועות לכיסוי',money(state.fixedCosts)+' ₪')}
+        ${slRow('blue','כל לקוח מעבר לזה = רווח נקי','+'+money(c.grossPerClient)+' ₪')}
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h3>${T('goal_path','מסלול ליעד הרווח שלך')}</h3><span class="sub">יעד: ${money(state.goalProfit)} ₪ רווח תפעולי</span></div>
+    <div class="grid cols-4">
+      ${miniMetric('לקוחות חדשים',fmt1(plan.clients),'users','green',fmt1(plan.clients/state.daysMonth)+' ביום')}
+      ${miniMetric(L('bd_leads'),fmt(plan.leads),'lead','blue',fmt1(plan.leads/state.daysMonth)+' ביום')}
+      ${miniMetric(L('bd_marketing'),money(plan.marketing)+'₪','wallet','amber',money(plan.marketing/state.daysMonth)+'₪ ביום')}
+      ${miniMetric('מחזור צפוי',money(plan.revenue)+'₪','trend','green',money(plan.revenue/state.daysMonth)+'₪ ביום')}
+    </div>
+    <div style="margin-top:16px;padding:14px 16px;background:var(--bg-2);border-radius:12px;border:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <span style="font-size:13.5px;color:var(--txt-dim)">רווח תפעולי שיתקבל</span>
+      <span style="font-family:'Rubik';font-size:24px;font-weight:800;color:var(--accent)">${money(plan.operating)} ₪</span>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   מסך 2 — יעדים ותכנון (יומי + חודשי)
+============================================================ */
+function renderGoals(){
+  document.getElementById('content').innerHTML=`
+  <div class="page-head"><h1>יעדים ותכנון</h1>
+    <p>הזן יעד רווח או מחזור — והמערכת תחשב אחורה את כל מה שצריך, ברמה החודשית והיומית. הכל מסונכרן ביניהם ועם נתוני הבסיס.</p></div>
+  <div class="notice">${svg('info')}<div>היעדים הם <b>חודשיים</b>. הפירוק היומי מחלק ל-${state.daysMonth} ימי חודש (ניתן לשינוי בנתוני בסיס). אפשר לערוך כל שם שדה בלחיצה עליו.</div></div>
+  <div class="split" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-h"><h3>${T('from_profit','מהרווח → לכל השאר')}</h3><span class="tag green">יעד ראשי</span></div>
+      <label class="hint" style="display:block;margin-bottom:8px">יעד רווח תפעולי חודשי</label>
+      <div class="field w-md"><span class="affix">₪</span><input type="number" id="gP" value="${state.goalProfit}" oninput="onGoalProfit(this.value)"></div>
+      <div id="gPres" style="margin-top:16px"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>${T('from_rev','מהמחזור → לכל השאר')}</h3><span class="tag blue">חישוב הפוך</span></div>
+      <label class="hint" style="display:block;margin-bottom:8px">יעד מחזור חודשי</label>
+      <div class="field w-md"><span class="affix">₪</span><input type="number" id="gR" value="${Math.round(revenueForProfit(state.goalProfit))}" oninput="onGoalRev(this.value)"></div>
+      <div id="gRres" style="margin-top:16px"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h3>${T('goal_breakdown','פירוק היעד — חודשי מול יומי')}</h3><span class="sub">כל מה שצריך לבצע</span></div>
+    <div style="margin-bottom:14px"><span class="tag purple">אחוז המרה אפקטיבי: <span id="effShow"></span></span>
+      <span class="hint" style="display:inline;margin-right:8px">${state.answerRate}% מענה × ${state.closeRate}% סגירה — שנה בנתוני בסיס</span></div>
+    <div class="brk" id="brkBox"></div>
+  </div>`;
+  onGoalProfit(state.goalProfit);
+}
+function onGoalProfit(v){
+  const p=parseFloat(v)||0; state.goalProfit=p; saveState(); syncGoalInputs();
+  const plan=planFromClients(clientsForProfit(p));
+  document.getElementById('gPres').innerHTML=goalQuick(plan);
+  const r=document.getElementById('gR'); if(r&&document.activeElement!==r) r.value=Math.round(plan.revenue);
+  if(document.getElementById('gRres')) document.getElementById('gRres').innerHTML=revQuick(plan);
+  renderBrk(plan);
+}
+function onGoalRev(v){
+  const rev=parseFloat(v)||0; const plan=profitFromRevenue(rev);
+  state.goalProfit=plan.operating; saveState(); syncGoalInputs();
+  document.getElementById('gRres').innerHTML=revQuick(plan);
+  const p=document.getElementById('gP'); if(p&&document.activeElement!==p) p.value=Math.round(plan.operating);
+  if(document.getElementById('gPres')) document.getElementById('gPres').innerHTML=goalQuick(plan);
+  renderBrk(plan);
+}
+function goalQuick(plan){return `<div class="statlist">
+  ${slRow('green','לקוחות חדשים',fmt1(plan.clients))}
+  ${slRow('blue','מחזור נדרש',money(plan.revenue)+' ₪')}
+  ${slRow('amber','רווח גולמי',money(plan.gross)+' ₪')}
+  ${slRow('purple',L('bd_marketing'),money(plan.marketing)+' ₪')}</div>`;}
+function revQuick(plan){return `<div class="statlist">
+  ${slRow('green','רווח תפעולי','<b style="color:var(--accent)">'+money(plan.operating)+' ₪</b>')}
+  ${slRow('amber','רווח גולמי',money(plan.gross)+' ₪')}
+  ${slRow('blue','לקוחות נדרשים',fmt1(plan.clients))}
+  ${slRow('purple',L('bd_marketing'),money(plan.marketing)+' ₪')}</div>`;}
+
+function renderBrk(plan){
+  const c=compute(); const d=state.daysMonth;
+  const es=document.getElementById('effShow'); if(es) es.textContent=fmt1(c.effConv*100)+'%';
+  const teamSize=Math.max(parseInt(state.teamSize)||1,1);
+  const capMonth=c.callsPerMonthPerRep*teamSize;   // קיבולת שיחות חודשית של כל הצוות
+  const capDay=c.callsPerDayPerRep*teamSize;        // קיבולת יומית
+  const callsOver=plan.calls>capMonth;              // האם נדרש יותר מהקיבולת
+  const cols=[
+    ['bd_marketing', money(plan.marketing)+'₪', money(plan.marketing/d)+'₪','amber'],
+    ['bd_leads', fmt(plan.leads), fmt1(plan.leads/d),'blue'],
+    ['bd_calls', fmt(plan.calls), fmt1(plan.calls/d),'purple'],
+    ['bd_sales', fmt1(plan.clients), fmt1(plan.clients/d),'green'],
+    ['bd_onboard', fmt1(plan.onboards), fmt1(plan.onboards/d),'amber'],
+    ['bd_onboardHrs', fmt1(plan.onboardHrs), fmt1(plan.onboardHrs/d),'red'],
+  ];
+  document.getElementById('brkBox').innerHTML=`
+  <div class="brk-table-wrap">
+    <table class="brk-table">
+      <thead><tr>
+        <th class="brk-corner"></th>
+        ${cols.map(([key,,,col])=>`<th style="color:${COLORS[col]}"><input class="lbl-edit" value="${L(key).replace(/"/g,'&quot;')}" data-lblkey="${key}" onchange="setLabel(this)" onclick="this.select()"></th>`).join('')}
+        <th style="color:var(--txt-faint)">קיבולת הצוות</th>
+      </tr></thead>
+      <tbody>
+        <tr class="brk-trow monthly">
+          <td class="brk-rowlbl">${svg('calendar')} בחודש</td>
+          ${cols.map(([key,m])=>`<td${key==='bd_calls'&&callsOver?' style="color:var(--red)"':''}>${m}${key==='bd_calls'&&callsOver?' ⚠':''}</td>`).join('')}
+          <td style="color:var(--txt-faint);font-size:15px">${fmt(capMonth)} שיחות</td>
+        </tr>
+        <tr class="brk-trow daily">
+          <td class="brk-rowlbl">${svg('clock')} ביום</td>
+          ${cols.map(([key,,dy])=>`<td${key==='bd_calls'&&callsOver?' style="color:var(--red)"':''}>${dy}</td>`).join('')}
+          <td style="color:var(--txt-faint)">${fmt(capDay)} שיחות</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  ${callsOver
+    ? `<div class="notice warn" style="margin-top:14px;margin-bottom:0">${svg('info')}<div><b>היעד הזה לא ריאלי לצוות הנוכחי.</b> הוא דורש ${fmt(plan.calls)} שיחות בחודש, אבל ${teamSize} ${teamSize>1?'נציגים יכולים':'נציג יכול'} לבצע מקסימום ${fmt(capMonth)} שיחות. כדי שזה יהיה אפשרי: הוסף נציגים, הגדל שעות עבודה, או קצר את אורך השיחה (בנתוני בסיס).</div></div>`
+    : `<div class="notice ok" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לעמוד בכמות השיחות שהיעד דורש — ${fmt(plan.calls)} מתוך ${fmt(capMonth)} אפשריות.</div></div>`}`;
+  autoSizeInputs();
+}
+function setLabel(input){
+  const key=input.dataset.lblkey; const val=input.value.trim();
+  if(!state.labels) state.labels={};
+  if(val) state.labels[key]=val; else delete state.labels[key];
+  saveState(); toast('השם נשמר'); autoSizeInputs();
+}
+
+/* ============================================================
+   מסך 3 — מכירות (כללי + אישי)
+============================================================ */
+let salesView='team'; let activeRepId=null;
+function renderSales(){
+  if(salesView==='rep' && activeRepId!=null) return renderRep(activeRepId);
+  const reps=state.reps;
+  document.getElementById('content').innerHTML=`
+  <div class="page-head"><h1>אנשי מכירות</h1>
+    <p>תצוגת צוות כללית + מסך אישי לכל איש מכירות, מחובר ליעד החברה.</p></div>
+  <div id="salesLagging"></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+    <div class="rep-pill active" onclick="salesView='team';activeRepId=null;renderSales()">${svg('users')} כל הצוות</div>
+    ${reps.map(r=>`<div class="rep-pill" onclick="openRep(${r.id})">${r.name}</div>`).join('')}
+    <div class="rep-pill" onclick="addRep()">${svg('plus')} הוסף</div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>${T('two_conv','אחוז ההמרה: מה תכננו מול מה שקורה בפועל')} ${help('twoconv')}</h3></div>
+    <div id="salesTwoConv"></div>
+  </div>
+
+  <div class="grid cols-5" style="margin-bottom:16px" id="salesKpis"></div>
+
+  <div class="split" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-h"><h3>${T('team_equal','חלוקת היעד שווה בין כל אנשי המכירות')}</h3><span class="tag blue">יעד סטטי</span></div>
+      <table class="kpi-table" style="margin-bottom:6px"><tbody>
+        ${quickEdit('teamSize','מספר אנשי מכירות','','users','green')}
+      </tbody></table>
+      <div id="teamEqual"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>${T('team_weighted','חלוקת היעד לפי הביצועים של כל אחד')} ${help('weighted')}</h3><span class="tag green">דינמי</span></div>
+      <p class="hint" style="margin-bottom:10px">מי שאחוז הסגירה שלו גבוה יותר מקבל יותר לקוחות לסגור, כי סביר שיצליח.</p>
+      <div id="teamWeighted"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h3>${T('team_summary','האם היעדים של כל אנשי המכירות יחד מספיקים ליעד החברה')}</h3></div>
+    <div id="teamSummary"></div>
+  </div>`;
+  refreshSalesDerived();
+}
+/* מעדכן רק את אזורי התוצאה במסך הצוות — שדות הקלט לא נוגעים */
+function refreshSalesDerived(){
+  const c=compute(); const plan=planFromClients(clientsForProfit(state.goalProfit));
+  const reps=state.reps;
+  const avgRepClose=reps.length? reps.reduce((a,r)=>a+(parseFloat(r.closeRate)||0),0)/reps.length : state.closeRate;
+  const lagging=reps.filter(r=>(parseFloat(r.closeRate)||0)<state.closeRate);
+  const set=(id,html)=>{const e=document.getElementById(id); if(e)e.innerHTML=html;};
+
+  set('salesLagging', lagging.length
+    ? `<div class="notice warn">${svg('info')}<div><b>שים לב:</b> ${lagging.map(r=>r.name).join(', ')} ${lagging.length>1?'נמצאים':'נמצא'} מתחת לאחוז הסגירה של היעד (${state.closeRate}%). זה מסכן את יעד החברה — צריך להעלות אחוז סגירה או להזרים יותר לידים.</div></div>`
+    : '');
+
+  // שני אחוזי המרה
+  const baseEff=c.effConv*100, actualEff=(state.answerRate/100)*(avgRepClose/100)*100;
+  const actualClients=plan.leads*(actualEff/100); const actualPlan=planFromClients(actualClients);
+  const behind=actualEff<baseEff;
+  set('salesTwoConv', `<div class="split" style="gap:14px">
+      <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:16px">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--txt-dim);font-size:12.5px;margin-bottom:6px"><span style="color:var(--accent)">${svg('target')}</span> אחוז המרה ביעד (נתוני בסיס)</div>
+        <div style="font-family:'Rubik';font-size:30px;font-weight:800;color:var(--accent);direction:ltr;text-align:right">${fmt1(baseEff)}%</div>
+        <div class="hint">${state.answerRate}% מענה × ${state.closeRate}% סגירה · נדרשים ${fmt1(plan.clients)} לקוחות</div>
+      </div>
+      <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:16px">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--txt-dim);font-size:12.5px;margin-bottom:6px"><span style="color:${behind?'var(--red)':'var(--blue)'}">${svg('users')}</span> אחוז המרה בפועל (ממוצע הצוות)</div>
+        <div style="font-family:'Rubik';font-size:30px;font-weight:800;color:${behind?'var(--red)':'var(--blue)'};direction:ltr;text-align:right">${fmt1(actualEff)}%</div>
+        <div class="hint">${state.answerRate}% מענה × ${fmt1(avgRepClose)}% סגירה ממוצע · בפועל ${fmt1(actualClients)} לקוחות</div>
+      </div></div>
+    ${behind? `<div class="notice warn" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>אחוז ההמרה בפועל (<b>${fmt1(actualEff)}%</b>) נמוך מהיעד (<b>${fmt1(baseEff)}%</b>). באותו תקציב תקבל <b>${fmt1(actualClients)}</b> לקוחות במקום ${fmt1(plan.clients)} — פער של <b>${money(plan.operating-actualPlan.operating)}₪</b> ברווח.</div></div>`
+      : `<div class="notice ok" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>הצוות עומד באחוז ההמרה של היעד.</div></div>`}`);
+
+  set('salesKpis',
+    kpiTile('מקסימום שיחות ביום לנציג','phone','blue',c.callsPerDayPerRep,'','לפי '+state.callMin+' דק׳ לשיחה, '+state.workHoursDay+' שעות ביום','')+
+    kpiTile('מקסימום שיחות בחודש לנציג','repeat','purple',fmt(c.callsPerMonthPerRep),'','לפי '+state.workDaysMonth+' ימי עבודה בחודש','')+
+    kpiTile('מקסימום שיחות שכל הצוות יכול לבצע בחודש','users','green',fmt(c.callsPerMonthPerRep*Math.max(parseInt(state.teamSize)||1,1)),'שיחות',Math.max(parseInt(state.teamSize)||1,1)+' נציגים יחד','capacity')+
+    kpiTile('כמה נציג מרוויח על כל עסקה','wallet','amber',money(c.commCost),'₪',state.salesCommPct+'% ממחיר ההקמה','')+
+    kpiTile('סך כל העמלות לתשלום בחודש','money','green',money(plan.commTotal),'₪','עבור '+fmt1(plan.clients)+' עסקאות',''));
+
+  // חלוקה שווה לפי כמות אנשי מכירות
+  const n=Math.max(parseInt(state.teamSize)||1,1);
+  const perRep=plan.clients/n;
+  set('teamEqual', `<div class="statlist">
+      ${slRow('green','כמה לקוחות כל איש מכירות צריך לסגור בחודש',fmt1(perRep))}
+      ${slRow('blue','כמה לידים (פניות) כל איש צריך לקבל בחודש',fmt(plan.leads/n))}
+      ${slRow('purple','כמה שיחות (שענו) כל איש צריך לבצע בחודש',fmt(plan.calls/n))}
+      ${slRow('amber','כמה עמלות כל איש צפוי להרוויח בחודש',money(plan.commTotal/n)+' ₪')}
+      ${slRow('green','כמה מכירות כל איש צריך לסגור ביום',fmt1(perRep/state.daysMonth))}
+    </div>
+    <div class="hint" style="margin-top:10px">מחלק את יעד החברה שווה בשווה בין ${n} אנשי מכירות — כל אחד מקבל בדיוק אותו יעד.</div>`);
+
+  // חלוקה משוקללת לפי ביצועים
+  const weights=reps.map(r=>Math.max(parseFloat(r.closeRate)||0,1));
+  const sumW=weights.reduce((a,b)=>a+b,0);
+  const capacity=c.callsPerMonthPerRep; // קיבולת מקסימלית של שיחות שענו לאיש בחודש
+  let anyOver=false;
+  const rowsHtml=reps.map((r,i)=>{
+    const share=sumW>0?weights[i]/sumW:1/reps.length; const rc=plan.clients*share;
+    const rClose=(parseFloat(r.closeRate)||0)/100;
+    const callsNeeded= rClose>0 ? rc/rClose : 0;   // שיחות שענו שצריך כדי לסגור rc לקוחות
+    const over= callsNeeded>capacity;
+    if(over) anyOver=true;
+    const low=(parseFloat(r.closeRate)||0)<state.closeRate;
+    return `<tr>
+      <td style="font-size:13.5px">${r.name}</td>
+      <td style="text-align:center"><span class="tag ${low?'red':'green'}">${r.closeRate}%</span></td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;direction:ltr">${fmt1(rc)} <span style="font-size:11px;color:var(--txt-faint)">(${fmt1(rc/state.daysMonth)}/יום)</span></td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;direction:ltr;color:${over?'var(--red)':'var(--txt)'}">${fmt(callsNeeded)}${over?' ⚠':''} <span style="font-size:11px;color:var(--txt-faint)">(${fmt1(callsNeeded/state.daysMonth)}/יום)</span></td>
+    </tr>`;}).join('');
+  set('teamWeighted', `<table class="kpi-table">
+      <thead><tr><th>איש מכירות</th><th style="text-align:center">אחוז הסגירה שלו</th><th style="text-align:center">כמה לקוחות צריך לסגור בחודש</th><th style="text-align:center">כמה שיחות צריך לבצע בחודש</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    ${anyOver? `<div class="notice warn" style="margin-top:12px;margin-bottom:0">${svg('info')}<div><b>אזהרת קיבולת:</b> מישהו צריך יותר שיחות ממה שאפשר פיזית (מקסימום ${fmt(capacity)} בחודש לאיש). היעד שלו לא ריאלי באחוז הסגירה הנוכחי — צריך להעלות לו את אחוז הסגירה, או להוסיף איש מכירות שיחלוק את העומס.</div></div>`
+      : `<div class="hint" style="margin-top:10px">✓ כל אחד בתוך הקיבולת הפיזית (מקסימום ${fmt(capacity)} שיחות בחודש לאיש).</div>`}`);
+
+  // סיכום אישי מול חברה
+  const totalPersonal=reps.reduce((a,r)=>a+(c.commCost>0?(parseFloat(r.commGoal)||0)/c.commCost:0),0);
+  const companyNeed=plan.clients; const covered=totalPersonal>=companyNeed; const gap=companyNeed-totalPersonal;
+  set('teamSummary', `<div style="padding:15px 16px;background:${covered?'var(--accent-soft)':'var(--red-soft)'};border:1px solid ${covered?'rgba(61,220,151,.3)':'rgba(255,107,107,.3)'};border-radius:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div><div style="font-size:13px;color:var(--txt-dim)">סך היעדים האישיים מול יעד החברה</div>
+          <div style="font-family:'Rubik';font-size:15px;margin-top:3px">סך אישי: <b style="color:var(--accent)">${fmt1(totalPersonal)}</b> עסקאות &nbsp;·&nbsp; יעד חברה: <b>${fmt1(companyNeed)}</b> עסקאות</div></div>
+        <div class="tag ${covered?'green':'red'}" style="font-size:13px">${covered?'✓ היעדים מכסים את החברה':'✗ חסר '+fmt1(gap)+' עסקאות'}</div>
+      </div>
+      ${!covered?`<div class="hint" style="margin-top:8px;color:var(--red)">סכום היעדים האישיים לא מספיק ליעד החברה. העלה יעד אישי, הוסף איש מכירות, או קבל שהחברה תהיה מתחת ליעד.</div>`:''}
+    </div>`);
+  autoSizeInputs();
+}
+function quickEdit(key,label,affix,icon,color){
+  return `<tr>
+    <td><div class="kpi-row-lbl"><div class="kpi-row-ico" style="--ic-bg:var(--${color}-soft);--ic:${COLORS[color]}">${svg(icon)}</div>
+      <div><b>${label}</b></div></div></td>
+    <td><div class="editable-cell"><div class="field w-sm">${affix?`<span class="affix">${affix}</span>`:''}
+      <input type="number" value="${state[key]}" data-key="${key}" oninput="onLiveSetting(this,'sales')"></div></div></td>
+    <td></td></tr>`;
+}
+function onLiveSetting(input,page){
+  state[input.dataset.key]=parseFloat(input.value)||0; saveState();
+  if(page==='sales') refreshSalesDerived();
+}
+
+function openRep(id){ salesView='rep'; activeRepId=id; renderRep(id); }
+function addRep(){
+  const id=Date.now();
+  state.reps.push({id,name:'איש מכירות '+(state.reps.length+1),closeRate:state.closeRate,commGoal:6000,closedDeals:0,daysPassed:0});
+  saveState(); openRep(id); toast('נוסף איש מכירות');
+}
+function delRep(id){
+  if(state.reps.length<=1){toast('חייב להישאר לפחות אחד');return;}
+  if(confirm('למחוק את איש המכירות?')){ state.reps=state.reps.filter(r=>r.id!==id); saveState(); salesView='team';activeRepId=null; renderSales(); toast('נמחק'); }
+}
+/* עדכון ערך של איש מכירות — בלי רנדור מחדש (מתקן את באג הפוקוס) */
+function updateRep(id,field,val){
+  const r=state.reps.find(x=>x.id===id); if(!r)return;
+  r[field]= field==='name'? val : (parseFloat(val)||0);
+  saveState();
+  if(field!=='name') refreshRepDerived(id); // מעדכן רק את אזורי התוצאה, לא את שדות הקלט
+}
+
+/* חישוב כל הנתונים של איש מכירות (מופרד מהרינדור) */
+function repCalc(r){
+  const c=compute();
+  const commCost=c.commCost;
+  const repClose=(parseFloat(r.closeRate)||0)/100;
+  const repEff=repClose*c.answer;
+  const p_deals=commCost>0 ? r.commGoal/commCost : 0;
+  const p_calls=repClose>0 ? p_deals/repClose : 0;
+  const p_leads=repEff>0 ? p_deals/repEff : 0;
+  const p_marketing=p_leads*state.costPerLead;
+  const plan=planFromClients(clientsForProfit(state.goalProfit));
+  const reps=state.reps; const weights=reps.map(x=>Math.max(parseFloat(x.closeRate)||0,1));
+  const sumW=weights.reduce((a,b)=>a+b,0); const myW=Math.max(parseFloat(r.closeRate)||0,1);
+  const myShare=sumW>0?myW/sumW:1/reps.length;
+  const co_deals=plan.clients*myShare;
+  const co_calls=repClose>0 ? co_deals/repClose : 0;
+  const co_leads=repEff>0 ? co_deals/repEff : 0;
+  const co_marketing=co_leads*state.costPerLead;
+  const co_comm=co_deals*commCost;
+  const targetDeals=Math.max(p_deals,co_deals);
+  const remaining=Math.max(targetDeals-r.closedDeals,0);
+  const daysLeft=Math.max(state.daysMonth-r.daysPassed,0);
+  const perDayNeeded=daysLeft>0 ? remaining/daysLeft : remaining;
+  const pace=r.daysPassed>0 ? r.closedDeals/r.daysPassed : 0;
+  const projected=pace*state.daysMonth;
+  const onTrack=projected>=targetDeals;
+  const companyClose=state.closeRate;
+  const belowCompany=(parseFloat(r.closeRate)||0)<companyClose;
+  const gap=co_deals-p_deals;
+  const p_dealsPerDay=p_deals/state.daysMonth; // מכירות ביום לפי היעד האישי
+  return {c,commCost,p_deals,p_calls,p_leads,p_marketing,p_comm:r.commGoal,co_deals,co_calls,
+    co_leads,co_marketing,co_comm,targetDeals,remaining,daysLeft,perDayNeeded,pace,projected,
+    onTrack,companyClose,belowCompany,gap,p_dealsPerDay};
+}
+
+function renderRep(id){
+  const r=state.reps.find(x=>x.id===id); if(!r){salesView='team';return renderSales();}
+  document.getElementById('content').innerHTML=`
+  <div class="page-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <div class="rep-pill" onclick="salesView='team';activeRepId=null;renderSales()" style="cursor:pointer">→ חזרה לצוות</div>
+      <h1 style="margin-top:10px">${svg('user')} <input class="lbl-edit" style="font-size:27px;font-family:'Rubik';font-weight:700;max-width:300px" value="${r.name.replace(/"/g,'&quot;')}" onchange="updateRep(${id},'name',this.value)"></h1>
+    </div>
+    <button class="btn btn-danger btn-sm" onclick="delRep(${id})">${svg('trash')} מחק</button>
+  </div>
+  <div id="repAlert"></div>
+  <div class="split" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-h"><h3>היעד שאני קובע לעצמי</h3><span class="tag green">גמיש</span></div>
+      <label class="hint" style="display:block;margin-bottom:8px">כמה אני רוצה לעשות בעמלות החודש</label>
+      <div class="field w-md"><span class="affix">₪</span><input type="number" value="${r.commGoal}" oninput="updateRep(${id},'commGoal',this.value)"></div>
+      <table class="kpi-table" style="margin-top:14px"><tbody>
+        ${quickEditRep(id,'closeRate','אחוז הסגירה שלי (כמה % מהשיחות אני סוגר)','%','conv','green')}
+      </tbody></table>
+      <div id="repPersonalStats" class="statlist" style="margin-top:6px"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>המעקב שלי החודש — איפה אני עומד</h3></div>
+      <table class="kpi-table" style="margin-bottom:8px"><tbody>
+        ${quickEditRep(id,'closedDeals','כמה עסקאות כבר סגרתי החודש','','conv','green')}
+        ${quickEditRep(id,'daysPassed','כמה ימים כבר עברו מתחילת החודש','ימים','calendar','blue')}
+      </tbody></table>
+      <div id="repProgress"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h3>${T('rep_vs_company','היעד שאני הצבתי לעצמי מול מה שהחברה צריכה ממני')} ${help('repcompany')}</h3>
+      <span id="repGapTag"></span></div>
+    <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px">אותם נתונים בדיוק — פעם לפי מה שאתה רוצה (עמלות), ופעם לפי מה שהחברה צריכה ממך. כך תראה בעיניים איפה הפער.</p>
+    <div id="repCmpTable"></div>
+    <div id="repCmpHint" class="hint" style="margin-top:12px"></div>
+  </div>`;
+  refreshRepDerived(id);
+}
+/* מעדכן רק את אזורי התוצאה — שדות הקלט לא נוגעים, הפוקוס נשמר */
+function refreshRepDerived(id){
+  const r=state.reps.find(x=>x.id===id); if(!r)return;
+  const k=repCalc(r);
+  const set=(elId,html)=>{const e=document.getElementById(elId); if(e)e.innerHTML=html;};
+
+  set('repAlert', k.belowCompany
+    ? `<div class="notice warn">${svg('info')}<div><b>אחוז הסגירה שלך (${r.closeRate}%) נמוך מיעד החברה (${k.companyClose}%).</b> אם כל הצוות כמוך, החברה לא תגיע ליעד. כדי שהחברה תעמוד ביעד אתה צריך אחוז סגירה של לפחות <b style="color:var(--accent)">${k.companyClose}%</b> — או לפצות עם יותר לידים/שיחות.</div></div>`
+    : `<div class="notice ok">${svg('info')}<div>אחוז הסגירה שלך (${r.closeRate}%) עומד ביעד החברה (${k.companyClose}%).</div></div>`);
+
+  set('repPersonalStats',
+    slRow('green','כמה עסקאות אני צריך לסגור החודש',fmt1(k.p_deals))+
+    slRow('purple','כמה עסקאות לסגור ביום (כדי לעמוד ביעד)','<b>'+fmt1(k.p_dealsPerDay)+'</b>')+
+    slRow('blue','כמה שיחות (שענו) אני צריך לבצע החודש',fmt(k.p_calls))+
+    slRow('amber','כמה אני מרוויח על כל עסקה',money(k.commCost)+' ₪'));
+
+  set('repProgress',
+    `<div class="statlist">
+      ${slRow(k.remaining>0?'amber':'green','כמה עסקאות נשארו לי עד היעד',fmt1(k.remaining))}
+      ${slRow('blue','כמה ימים נשארו עד סוף החודש',k.daysLeft)}
+      ${slRow(k.perDayNeeded>k.pace&&k.pace>0?'red':'purple','כמה עסקאות לסגור כל יום מעכשיו כדי להספיק','<b>'+fmt1(k.perDayNeeded)+'</b>')}
+      ${slRow('green','הקצב שלי עד עכשיו (עסקאות ביום)',fmt1(k.pace))}
+    </div>
+    <div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:7px">
+        <span style="color:var(--txt-dim)">תחזית לסוף החודש מול היעד</span>
+        <b style="font-family:'Rubik';color:${k.onTrack?'var(--accent)':'var(--red)'}">${fmt1(k.targetDeals>0?k.projected/k.targetDeals*100:0)}%</b></div>
+      <div class="goal-prog"><div class="fill ${k.onTrack?'':'warn'}" style="width:${Math.min(k.targetDeals>0?k.projected/k.targetDeals*100:0,100)}%"></div></div>
+      <div class="hint" style="color:${k.onTrack?'var(--accent)':'var(--red)'}">${k.onTrack?'✓ בקצב הזה תגיע ליעד ('+fmt1(k.projected)+' צפויות)':'⚠ בקצב הזה '+fmt1(k.projected)+' עסקאות בלבד — מתחת ליעד'}</div>
+    </div>`);
+
+  set('repGapTag', `<span class="tag ${k.gap>0.05?'red':'green'}">${k.gap>0.05?'פער של '+fmt1(k.gap)+' עסקאות':'מכוסה'}</span>`);
+
+  set('repCmpTable',
+    `<table class="kpi-table">
+      <thead><tr><th>מדד</th><th style="text-align:center;color:var(--accent)">מה שאני רוצה (היעד שלי)</th><th style="text-align:center;color:var(--blue)">מה שהחברה צריכה ממני</th></tr></thead>
+      <tbody>
+        ${repCmpRow('כמה עמלות ארוויח בחודש',money(k.p_comm)+' ₪',money(k.co_comm)+' ₪')}
+        ${repCmpRow('כמה עסקאות לסגור בחודש',fmt1(k.p_deals),fmt1(k.co_deals))}
+        ${repCmpRow('כמה עסקאות לסגור ביום',fmt1(k.p_deals/state.daysMonth),fmt1(k.co_deals/state.daysMonth))}
+        ${repCmpRow('כמה שיחות (שענו) לבצע בחודש',fmt(k.p_calls),fmt(k.co_calls))}
+        ${repCmpRow('כמה שיחות לבצע ביום',fmt1(k.p_calls/state.daysMonth),fmt1(k.co_calls/state.daysMonth))}
+        ${repCmpRow(L('bd_leads'),fmt(k.p_leads),fmt(k.co_leads))}
+        ${repCmpRow(L('bd_marketing'),money(k.p_marketing)+' ₪',money(k.co_marketing)+' ₪')}
+      </tbody>
+    </table>`);
+
+  set('repCmpHint', k.gap>0.05
+    ? '⚠ החלק שלך ביעד החברה גבוה מהיעד האישי שהגדרת. כדי לכסות אותו, היעד האישי שלך בעמלות צריך להיות בערך <b style="color:var(--accent)">'+money(k.co_comm)+'₪</b> (במקום '+money(k.p_comm)+'₪).'
+    : '✓ היעד האישי שלך מכסה את החלק שלך ביעד החברה. מצוין.');
+}
+function repCmpRow(label,personal,company){
+  return `<tr>
+    <td style="font-size:13.5px;color:var(--txt-dim)">${label}</td>
+    <td style="text-align:center;font-family:'Rubik';font-weight:700;direction:ltr;color:var(--accent)">${personal}</td>
+    <td style="text-align:center;font-family:'Rubik';font-weight:700;direction:ltr;color:var(--blue)">${company}</td>
+  </tr>`;
+}
+function quickEditRep(id,field,label,affix,icon,color){
+  const r=state.reps.find(x=>x.id===id);
+  return `<tr>
+    <td><div class="kpi-row-lbl"><div class="kpi-row-ico" style="--ic-bg:var(--${color}-soft);--ic:${COLORS[color]}">${svg(icon)}</div>
+      <div><b>${label}</b></div></div></td>
+    <td><div class="editable-cell"><div class="field w-sm">${affix?`<span class="affix">${affix}</span>`:''}
+      <input type="number" value="${r[field]}" oninput="updateRep(${id},'${field}',this.value)"></div></div></td>
+    <td></td></tr>`;
+}
+
+/* ============================================================
+   מסך 4 — סימולטור (בורר נעילה)
+   lock = איזה ערך נשאר קבוע בזמן ששאר הפרמטרים משתנים
+============================================================ */
+let simState=null, simLock='clients';
+const LOCK_INFO={
+  clients:{name:'מספר לקוחות',desc:'מספר הלקוחות נשאר קבוע (כמו ביעד הנוכחי). השאלה: כמה רווח ומחזור אקבל מאותם לקוחות אם הפרמטרים ישתנו? שינוי באחוז מענה/סגירה לא משנה מחזור — רק את העלות והרווח.'},
+  budget:{name:'תקציב שיווק / לידים',desc:'תקציב השיווק (מספר הלידים) נשאר קבוע. השאלה: מאותו תקציב, כמה לקוחות, מחזור ורווח אקבל? כאן שינוי באחוז מענה/סגירה כן משנה הכל — כמו בעולם האמיתי.'},
+  revenue:{name:'יעד מחזור',desc:'יעד המחזור נשאר קבוע. השאלה: כמה לקוחות, לידים ותקציב שיווק צריך כדי להגיע לאותו מחזור עם הפרמטרים החדשים, וכמה רווח יישאר?'},
+  invest:{name:'מצב השקעה (תקציב חופשי)',desc:'כאן אתה גורר את תקציב השיווק בעצמך, ורואה כמה לידים, לקוחות, מחזור ורווח יוצאים ממנו. כולל בדיקה אם צוות המכירות בכלל יכול לטפל בכמות הלידים החדשה — ואם לא, מה צריך לעשות (יותר שעות או שיחה קצרה יותר).'},
+};
+function renderScenarios(){
+  if(!simState) simState=structuredClone(state);
+  // אתחול תקציב השיווק לפי המצב הנוכחי (פעם ראשונה)
+  if(simState.mktBudget==null){
+    const pn=planFromClients(clientsForProfit(state.goalProfit), state);
+    simState.mktBudget=Math.round(pn.marketing);
+  }
+  const isInvest = simLock==='invest';
+  document.getElementById('content').innerHTML=`
+  <div class="page-head"><h1>סימולטור מהלכים</h1>
+    <p>שנה פרמטרים בלי לגעת בנתונים האמיתיים, ותראה מיד את ההשפעה. השינויים כאן זמניים בלבד.</p></div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>על מה הסימולטור נעול?</h3></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${Object.entries(LOCK_INFO).map(([k,v])=>`
+        <div class="rep-pill ${simLock===k?'active':''}" onclick="setLock('${k}')">${v.name}</div>`).join('')}
+    </div>
+    <div class="notice" style="margin-bottom:0">${svg('info')}<div><b>נעול על: ${LOCK_INFO[simLock].name}.</b> ${LOCK_INFO[simLock].desc}</div></div>
+  </div>
+
+  <div class="split">
+    <div class="card">
+      <div class="card-h"><h3>הזז פרמטרים</h3><button class="btn btn-ghost btn-sm" onclick="resetSim()">איפוס</button></div>
+      ${isInvest? slider('mktBudget','תקציב שיווק חודשי',0,50000,250,'₪') : ''}
+      ${slider('costPerLead','מחיר לליד',5,50,1,'₪')}
+      ${slider('answerRate','אחוז מענה',10,100,1,'%')}
+      ${slider('closeRate','אחוז סגירה',5,60,1,'%')}
+      ${slider('setupFee','מחיר הקמה',0,5000,50,'₪')}
+      ${slider('retainer','ריטיינר חודשי',0,2000,50,'₪')}
+      ${slider('avgMonths','חודשי שימור',1,24,1,'חוד׳')}
+      ${slider('salesCommPct','עמלת מכירות',0,70,1,'%')}
+      ${isInvest? slider('callMin','אורך שיחה ממוצעת',5,90,1,'דק׳') : ''}
+      ${isInvest? slider('workHoursDay','שעות עבודה ביום לאיש',1,12,0.5,'שע׳') : ''}
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-h"><h3>ההשפעה על הרווח</h3><span class="sub" id="simSub"></span></div>
+        <div id="simImpact"></div>
+        <div id="simCapacity"></div>
+      </div>
+      <div class="card"><div class="card-h"><h3>עכשיו מול התרחיש</h3></div><div id="simCompare"></div></div>
+    </div>
+  </div>`;
+  updateSim();
+}
+function setLock(k){ simLock=k; renderScenarios(); }
+function slider(key,label,min,max,step,affix){
+  const disp = step<1 ? fmt1(simState[key]) : fmt(simState[key]);
+  return `<div class="slider-row"><div class="sr-h"><label>${label}</label>
+    <b>${disp} <span style="font-size:12px;color:var(--txt-dim)">${affix}</span></b></div>
+    <input type="range" min="${min}" max="${max}" step="${step}" value="${simState[key]}" data-key="${key}" data-affix="${affix}" data-step="${step}" oninput="onSlider(this)"></div>`;
+}
+function onSlider(i){ simState[i.dataset.key]=parseFloat(i.value);
+  const step=parseFloat(i.dataset.step)||1; const disp=step<1?fmt1(simState[i.dataset.key]):fmt(simState[i.dataset.key]);
+  i.closest('.slider-row').querySelector('.sr-h b').innerHTML=`${disp} <span style="font-size:12px;color:var(--txt-dim)">${i.dataset.affix}</span>`;
+  updateSim(); }
+function resetSim(){ simState=structuredClone(state); renderScenarios(); toast('התרחיש אופס'); }
+
+/* מחזיר plan לפי מה שנעול */
+function simPlans(){
+  const cNow=compute(state), cSim=compute(simState);
+  const planNow=planFromClients(clientsForProfit(state.goalProfit), state);
+  let planSim, subText;
+  if(simLock==='clients'){
+    planSim=planFromClients(planNow.clients, simState);
+    subText='מספר לקוחות נעול: '+fmt1(planNow.clients);
+  } else if(simLock==='budget'){
+    const fixedLeads=planNow.leads;
+    planSim=planFromClients(fixedLeads*cSim.effConv, simState);
+    subText='תקציב נעול: '+money(planNow.marketing)+'₪ ('+fmt(fixedLeads)+' לידים)';
+  } else if(simLock==='invest'){
+    const leads = simState.costPerLead>0 ? simState.mktBudget/simState.costPerLead : 0;
+    planSim=planFromClients(leads*cSim.effConv, simState);
+    subText='תקציב שיווק: '+money(simState.mktBudget)+'₪ → '+fmt(leads)+' לידים';
+  } else { // revenue
+    const fixedRev=planNow.revenue;
+    planSim=planFromClients(cSim.revPerClient>0?fixedRev/cSim.revPerClient:0, simState);
+    subText='מחזור נעול: '+money(fixedRev)+'₪';
+  }
+  return {cNow,cSim,planNow,planSim,subText};
+}
+function updateSim(){
+  const {cNow,cSim,planNow,planSim,subText}=simPlans();
+  const ss=document.getElementById('simSub'); if(ss) ss.textContent=subText;
+  const dP=planSim.operating-planNow.operating;
+  document.getElementById('simImpact').innerHTML=`
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <span style="font-family:'Rubik';font-size:38px;font-weight:800;color:${dP>=0?'var(--accent)':'var(--red)'}">${dP>=0?'+':''}${money(dP)}</span>
+      <span style="color:var(--txt-dim)">₪ שינוי ברווח</span></div>
+    <p style="font-size:13px;color:var(--txt-dim)">השוואה למצב הנוכחי, כשהערך הנעול נשאר קבוע.</p>
+    <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${simMini(L('bd_marketing'),money(planSim.marketing)+'₪',planSim.marketing,planNow.marketing,false)}
+      ${simMini(L('bd_leads'),fmt(planSim.leads),planSim.leads,planNow.leads,false)}
+      ${simMini('שיחות שענו',fmt(planSim.calls),planSim.calls,planNow.calls,false)}
+      ${simMini('לקוחות',fmt1(planSim.clients),planSim.clients,planNow.clients,true)}
+    </div>`;
+
+  // בדיקת קיבולת — רק במצב השקעה
+  const capEl=document.getElementById('simCapacity');
+  if(capEl){
+    if(simLock==='invest'){
+      const teamSize=Math.max(parseInt(state.teamSize)||1,1);
+      const capacity=cSim.callsPerMonthPerRep*teamSize;   // מקסימום שיחות שענו שהצוות יכול לטפל בהן (לפי הסליידרים)
+      const needed=planSim.calls;                          // שיחות שענו שצריך לטפל בהן
+      const over=needed>capacity;
+      const util=capacity>0?needed/capacity*100:0;
+      capEl.innerHTML=`
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line-soft)">
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:7px">
+            <span style="color:var(--txt-dim)">ניצולת צוות המכירות (${teamSize} אנשים)</span>
+            <b style="font-family:'Rubik';color:${over?'var(--red)':'var(--accent)'}">${fmt1(util)}%</b></div>
+          <div class="goal-prog"><div class="fill ${over?'warn':''}" style="width:${Math.min(util,100)}%"></div></div>
+          <div class="hint" style="margin-top:6px">צריך לטפל ב-${fmt(needed)} שיחות שענו · הצוות יכול ${fmt(capacity)} בחודש</div>
+          ${over? `<div class="notice warn" style="margin-top:12px;margin-bottom:0">${svg('info')}<div><b>הצוות לא יכול לעמוד בכמות הלידים הזו.</b> בתקציב הזה נכנסים יותר לידים ממה שאפשר לטפל בהם. כדי לעמוד בזה: הגדל שעות עבודה (כרגע ${fmt1(simState.workHoursDay)} שע׳), קצר את אורך השיחה (כרגע ${fmt(simState.callMin)} דק׳), או הוסף אנשי מכירות (במסך נתוני בסיס).</div></div>`
+            : `<div class="notice ok" style="margin-top:12px;margin-bottom:0">${svg('info')}<div>הצוות יכול לטפל בכל הלידים שהתקציב הזה מייצר.</div></div>`}
+        </div>`;
+    } else { capEl.innerHTML=''; }
+  }
+
+  document.getElementById('simCompare').innerHTML=`<table class="kpi-table">
+    <thead><tr><th>מדד</th><th>עכשיו</th><th>תרחיש</th></tr></thead><tbody>
+    ${cmpRow('המרה אפקטיבית',fmt1(cNow.effConv*100)+'%',fmt1(cSim.effConv*100)+'%',cSim.effConv>=cNow.effConv)}
+    ${cmpRow('הכנסה ללקוח',money(cNow.revPerClient)+'₪',money(cSim.revPerClient)+'₪',cSim.revPerClient>=cNow.revPerClient)}
+    ${cmpRow('רווח גולמי ללקוח',money(cNow.grossPerClient)+'₪',money(cSim.grossPerClient)+'₪',cSim.grossPerClient>=cNow.grossPerClient)}
+    ${cmpRow('לקוחות',fmt1(planNow.clients),fmt1(planSim.clients),planSim.clients>=planNow.clients)}
+    ${cmpRow(L('bd_leads'),fmt(planNow.leads),fmt(planSim.leads),planSim.leads<=planNow.leads)}
+    ${cmpRow(L('bd_marketing'),money(planNow.marketing)+'₪',money(planSim.marketing)+'₪',planSim.marketing<=planNow.marketing)}
+    ${cmpRow('מחזור חודשי',money(planNow.revenue)+'₪',money(planSim.revenue)+'₪',planSim.revenue>=planNow.revenue)}
+    ${cmpRow('רווח תפעולי',money(planNow.operating)+'₪',money(planSim.operating)+'₪',planSim.operating>=planNow.operating)}
+    </tbody></table>`;
+}
+function simMini(label,val,now,base,higherBetter){
+  const delta=now-base; const good=higherBetter?delta>=0:delta<=0;
+  return `<div style="background:var(--bg-2);border-radius:10px;padding:13px;border:1px solid var(--line-soft)">
+    <div class="hint">${label}</div>
+    <div style="font-family:'Rubik';font-size:18px;font-weight:700;direction:ltr;text-align:right">${val}</div></div>`;
+}
+function cmpRow(l,now,sim,good){return `<tr><td style="font-size:13.5px">${l}</td>
+  <td style="font-family:'Rubik';font-weight:600;color:var(--txt-dim);direction:ltr">${now}</td>
+  <td style="font-family:'Rubik';font-weight:700;direction:ltr;color:${good?'var(--accent)':'var(--red)'}">${sim}</td></tr>`;}
+
+/* ============================================================
+   מסך 5 — נתוני בסיס
+============================================================ */
+function renderSettings(){
+  document.getElementById('content').innerHTML=`
+  <div class="page-head"><h1>נתוני בסיס (KPI)</h1>
+    <p>המקור היחיד לכל החישובים. שנה כל ערך או כל שם — וכל הדוחות יתעדכנו מיידית. נשמר אוטומטית.</p></div>
+  <div class="notice">${svg('info')}<div>אפשר לערוך גם את <b>שם</b> כל מדד (לחיצה על השם) וגם את הערך. הכל נשמר בדפדפן. לגיבוי קבוע — ייצא קובץ.</div></div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>${T('core_data','נתוני ליבה')}</h3></div>
+    <table class="kpi-table"><thead><tr><th>מדד</th><th>ערך</th><th>תפקיד בחישוב</th></tr></thead><tbody>
+      ${Object.keys(META).map(k=>settingRow(k)).join('')}
+      ${settingRow('daysMonth',{label:'ימים בחודש (לפירוק יומי)',sub:'לחלוקת יעדים ליום',affix:'ימים',icon:'calendar',color:'blue'})}
+      ${settingRow('workDaysMonth',{label:'ימי עבודה בחודש',sub:'לקיבולת שיחות',affix:'ימים',icon:'calendar',color:'purple'})}
+      ${settingRow('workHoursDay',{label:'שעות מכירה ביום',sub:'לקיבולת שיחות',affix:'שע׳',icon:'clock',color:'blue'})}
+    </tbody></table>
+  </div>
+  <div class="card"><div class="card-h"><h3>פעולות</h3></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="exportConfig()">ייצוא קובץ גיבוי</button>
+      <label class="btn btn-ghost" style="cursor:pointer">ייבוא קובץ גיבוי<input type="file" accept=".json" onchange="importConfig(event)" style="display:none"></label>
+      <button class="btn btn-danger" onclick="resetAll()">איפוס לברירת מחדל</button>
+    </div></div>`;
+}
+function settingRow(key,m){
+  m=m||META[key];
+  return `<tr>
+    <td><div class="kpi-row-lbl"><div class="kpi-row-ico" style="--ic-bg:var(--${m.color}-soft);--ic:${COLORS[m.color]}">${svg(m.icon)}</div>
+      <div><b><input class="lbl-edit" value="${L(key)}" data-lblkey="${key}" onchange="setLabel(this)" onclick="this.select()"></b><small>${m.sub}</small></div></div></td>
+    <td><div class="editable-cell"><div class="field w-sm"><span class="affix">${m.affix}</span>
+      <input type="number" value="${state[key]}" data-key="${key}" oninput="onSetting(this)"></div></div></td>
+    <td style="color:var(--txt-faint);font-size:12.5px">${explainKey(key)}</td></tr>`;
+}
+function explainKey(key){return ({
+  costPerLead:'תקציב שיווק = לידים × ערך זה', answerRate:'מכפיל את מספר הלידים הנדרש',
+  closeRate:'אחוז סגירה ממי שענה', setupFee:'בסיס לעמלה', retainer:'× חודשי שימור = הכנסה חוזרת',
+  avgMonths:'מגדיל LTV', salesCommPct:'עלות משתנה לעסקה', fixedCosts:'קובע נקודת איזון',
+  callMin:'כמה שיחות אפשר ביום', onboardMin:'זמן פגישה לכל לקוח', onboardCostHr:'עלות שעת אונבורדינג (ספיר)',
+})[key]||'';}
+function onSetting(input){ state[input.dataset.key]=parseFloat(input.value)||0; saveState(); }
+
+/* ============================================================
+   רכיבים
+============================================================ */
+function kpiTile(label,icon,color,val,cur,meta,helpKey){
+  return `<div class="kpi" style="--bar:${COLORS[color]}">
+    <div class="lbl">${svg(icon,'lbl-ico')} ${label} ${helpKey?help(helpKey):''}</div>
+    <div class="val">${val}${cur?` <span class="cur">${cur}</span>`:''}</div>
+    <div class="meta">${meta||''}</div></div>`;
+}
+function miniMetric(label,val,icon,color,sub){
+  return `<div style="background:var(--bg-2);border-radius:12px;padding:15px;border:1px solid var(--line-soft)">
+    <div style="display:flex;align-items:center;gap:8px;color:var(--txt-dim);font-size:12.5px;margin-bottom:8px">
+      <span style="color:${COLORS[color]};display:inline-flex">${svg(icon)}</span>${label}</div>
+    <div style="font-family:'Rubik';font-size:22px;font-weight:700;direction:ltr;text-align:right">${val}</div>
+    ${sub?`<div class="hint" style="margin-top:3px">${sub}</div>`:''}</div>`;
+}
+function slRow(color,label,val){
+  return `<div class="sl"><div class="sl-l"><span class="dot" style="--d:${COLORS[color]}"></span><span>${label}</span></div><div class="sl-v">${val}</div></div>`;
+}
+
+/* ============================================================
+   הסברים (modal)
+============================================================ */
+const HELP={
+  be:{t:'נקודת איזון (Break-Even)',body:`כמה לקוחות צריך בחודש <b>רק כדי לכסות את ההוצאות הקבועות</b> — בלי להרוויח ובלי להפסיד.<br><br>כל לקוח משאיר רווח גולמי (הכנסה פחות עלות גיוס ועמלה). מחלקים את ההוצאות הקבועות ברווח הגולמי לכל לקוח.`,f:'הוצאות קבועות ÷ רווח גולמי ללקוח'},
+  ltv:{t:'הכנסה ללקוח (LTV)',body:`כמה כסף לקוח ממוצע מכניס לאורך כל הזמן שהוא איתך — הקמה חד-פעמית ועוד הריטיינר כפול מספר החודשים שהוא נשאר.`,f:'הקמה + (ריטיינר × חודשי שימור)'},
+  cac:{t:'עלות גיוס לקוח (CAC)',body:`כמה עולה להביא לקוח אחד חדש: תקציב השיווק על כל הלידים שצריך + עמלת איש המכירות + עלות פגישת אונבורדינג.`,f:'(לידים×מחיר ליד) + עמלה + אונבורדינג'},
+  gross:{t:'רווח גולמי ללקוח',body:`מה שנשאר מכל לקוח אחרי העלויות הישירות שלו (שיווק, עמלה, אונבורדינג), לפני ההוצאות הקבועות של העסק.`,f:'הכנסה ללקוח − עלות גיוס'},
+  ltvcac:{t:'יחס LTV / CAC',body:`כמה שקלים הלקוח מכניס על כל שקל שהושקע בגיוס שלו. מתחת ל-1 = הפסד. 1-3 = רווחי אבל בעייתי. <b>מעל 3 = בריא מאוד.</b>`,f:'הכנסה ללקוח ÷ עלות גיוס'},
+  eff:{t:'אחוז המרה אפקטיבי',body:`לא כל ליד עונה לטלפון, ולא כל מי שעונה סוגר. ההמרה האמיתית מליד ללקוח היא המכפלה של השניים.<br><br>דוגמה: 50% עונים, ומתוכם 20% סוגרים ⟵ רק 10% מהלידים הופכים ללקוח.`,f:'אחוז מענה × אחוז סגירה'},
+  simimpact:{t:'איך הסימולטור עובד',body:`הסימולטור מקבע את <b>תקציב השיווק</b> (מספר הלידים) הנוכחי, ובודק כמה לקוחות תקבל מאותו תקציב אם הפרמטרים ישתנו.<br><br>לכן אם אחוז המענה יורד — מאותם לידים תקבל פחות לקוחות, פחות מחזור ופחות רווח. המספר הירוק/אדום הגדול = השינוי ברווח התפעולי מול המצב הנוכחי.`,f:'לקוחות = לידים קבועים × המרה אפקטיבית'},
+  repcompany:{t:'הקשר בין האישי לחברה',body:`יעד החברה דורש מספר מסוים של לקוחות. הוא מתחלק בין אנשי המכירות <b>לפי אחוז הסגירה</b> — מי שסוגר יותר טוב מקבל נתח גדול יותר.<br><br>הטבלה מראה את אותם נתונים פעמיים: לפי היעד האישי שהזנת, ולפי החלק שלך ביעד החברה. אם החלק בחברה גבוה מהיעד האישי — יש פער שצריך לסגור.`,f:'חלק ביעד = (אחוז סגירה שלך ÷ סך הצוות) × לקוחות היעד'},
+  twoconv:{t:'תכנון מול ביצוע — אחוז המרה',body:`<b>אחוז המרה ביעד</b> = מה שהגדרת בנתוני בסיס, הבסיס לכל התכנון.<br><br><b>אחוז המרה בפועל</b> = ממוצע אחוזי הסגירה שאנשי המכירות הזינו במסכים האישיים שלהם.<br><br>אם הביצוע נמוך מהתכנון — באותו תקציב שיווק תקבל פחות לקוחות, ולכן פחות רווח. כך רואים את הפער בין מה שתוכנן למה שקורה.`,f:'בפועל = אחוז מענה × ממוצע סגירה של הצוות'},
+  capacity:{t:'קיבולת צוות',body:`כמה שיחות כל הצוות יכול להוציא בחודש יחד. מחושב לפי כמה שיחות איש אחד יכול לעשות (לפי אורך השיחה ושעות העבודה), כפול מספר אנשי המכירות.<br><br>זה מראה לך את התקרה — אם היעד דורש יותר שיחות מהקיבולת, צריך עוד אנשי מכירות או יותר שעות.`,f:'שיחות לחודש לאיש × מספר אנשי מכירות'},
+  weighted:{t:'חלוקה לפי ביצועים — איך זה עובד',body:`יעד החברה (מספר הלקוחות) מתחלק בין אנשי המכירות <b>לפי אחוז הסגירה</b> של כל אחד. מחברים את כל אחוזי הסגירה, וכל אחד מקבל את היחס שלו מתוך הסכום.<br><br>דוגמה: דני 25% ומאיה 15%. סכום = 40. דני מקבל 25/40 = 62% מהיעד, מאיה 15/40 = 38%.<br><br><b>שיחות נדרשות</b> = כמה שיחות (שענו) כל אחד צריך כדי לסגור את היעד שלו, לפי אחוז הסגירה האישי. אם זה עובר את הקיבולת המקסימלית — מופיעה אזהרה, כי היעד לא ריאלי.`,f:'חלק = (אחוז סגירה שלך ÷ סך הצוות) × יעד · שיחות = לקוחות ÷ אחוז סגירה'},
+};
+function help(key){return `<span class="help" onclick="openHelp('${key}')">?</span>`;}
+function openHelp(key){
+  const h=HELP[key]; if(!h)return;
+  document.getElementById('modalBox').innerHTML=`<h3>${svg('info')} ${h.t}</h3><p>${h.body}</p>
+    ${h.f?`<div class="formula">${h.f}</div>`:''}<button onclick="closeModal()">הבנתי</button>`;
+  document.getElementById('modalBg').classList.add('show');
+}
+function closeModal(){document.getElementById('modalBg').classList.remove('show');}
+
+/* ============================================================
+   גיבוי
+============================================================ */
+function exportConfig(){
+  try{
+    const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='kpi-backup-'+new Date().toISOString().slice(0,10)+'.json';
+    a.style.display='none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },1500);
+    toast('קובץ הגיבוי הורד');
+  }catch(err){ toast('שגיאה בהורדה'); }
+}
+function importConfig(e){
+  const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
+  rd.onload=ev=>{try{ state=deepMerge(structuredClone(DEFAULTS),JSON.parse(ev.target.result)); saveState();
+    simState=null; navigate(currentPage); toast('הנתונים יובאו'); }catch(err){toast('שגיאה בקובץ');}};
+  rd.readAsText(f);
+}
+function resetAll(){ if(confirm('לאפס הכל לברירת מחדל?')){ state=structuredClone(DEFAULTS); saveState(); simState=null; salesView='team';activeRepId=null; navigate(currentPage); toast('אופס'); } }
+
+/* ============================================================
+   ממשק
+============================================================ */
+let toastTimer;
+function toast(m){const t=document.getElementById('toast');document.getElementById('toastMsg').textContent=m;
+  t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2400);}
+function openDrawer(){document.getElementById('app').classList.add('drawer-open');}
+function closeDrawer(){document.getElementById('app').classList.remove('drawer-open');}
+
+/* בניית ניווט */
+document.getElementById('navLinks').innerHTML=Object.entries(PAGES).map(([k,p],i)=>`
+  <div class="nav-item ${k==='dashboard'?'active':''}" data-page="${k}" onclick="navigate('${k}')">
+    <svg class="ni-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p.icon}</svg>
+    <span>${k==='settings'?'נתוני בסיס (KPI)':k==='dashboard'?'סקירה כללית':k==='goals'?'יעדים ותכנון':k==='sales'?'אנשי מכירות':'סימולטור מהלכים'}</span>
+  </div>`).join('');
+document.getElementById('mobileNav').innerHTML=Object.entries(PAGES).map(([k,p])=>`
+  <div class="mn ${k==='dashboard'?'active':''}" data-page="${k}" onclick="navigate('${k}')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p.icon}</svg>
+    <span>${p.title}</span></div>`).join('');
+
+syncGoalInputs();
+navigate('dashboard');
+</script>
+</body>
+</html>
