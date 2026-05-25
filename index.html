@@ -603,6 +603,10 @@ function renderBrk(plan){
   const capMonth=c.callsPerMonthPerRep*teamSize;   // קיבולת שיחות חודשית של כל הצוות
   const capDay=c.callsPerDayPerRep*teamSize;        // קיבולת יומית
   const callsOver=plan.calls>capMonth;              // האם נדרש יותר מהקיבולת
+  // רווח מקסימלי לפי הקיבולת: מקס שיחות -> מקס לקוחות -> מקס רווח
+  const maxClients = c.callsPerClient>0 ? capMonth/c.callsPerClient : 0;
+  const maxOperating = maxClients*c.grossPerClient - state.fixedCosts;
+  const maxRevenue = maxClients*c.revPerClient;
   const cols=[
     ['bd_marketing', money(plan.marketing)+'₪', money(plan.marketing/d)+'₪','amber'],
     ['bd_leads', fmt(plan.leads), fmt1(plan.leads/d),'blue'],
@@ -635,7 +639,20 @@ function renderBrk(plan){
   </div>
   ${callsOver
     ? `<div class="notice warn" style="margin-top:14px;margin-bottom:0">${svg('info')}<div><b>היעד הזה לא ריאלי לצוות הנוכחי.</b> הוא דורש ${fmt(plan.calls)} שיחות בחודש, אבל ${teamSize} ${teamSize>1?'נציגים יכולים':'נציג יכול'} לבצע מקסימום ${fmt(capMonth)} שיחות. כדי שזה יהיה אפשרי: הוסף נציגים, הגדל שעות עבודה, או קצר את אורך השיחה (בנתוני בסיס).</div></div>`
-    : `<div class="notice ok" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לעמוד בכמות השיחות שהיעד דורש — ${fmt(plan.calls)} מתוך ${fmt(capMonth)} אפשריות.</div></div>`}`;
+    : `<div class="notice ok" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לעמוד בכמות השיחות שהיעד דורש — ${fmt(plan.calls)} מתוך ${fmt(capMonth)} אפשריות.</div></div>`}
+  <div style="margin-top:14px;padding:16px;background:var(--bg-2);border:1px solid var(--line);border-radius:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div>
+        <div style="font-size:13px;color:var(--txt-dim);display:flex;align-items:center;gap:7px">${svg('flag')} תקרת הרווח עם הצוות הנוכחי (${teamSize} ${teamSize>1?'נציגים':'נציג'})</div>
+        <div class="hint" style="margin-top:4px">המקסימום שאפשר להגיע אליו אם הצוות עובד בקיבולת מלאה — ${fmt(capMonth)} שיחות, ${fmt1(maxClients)} לקוחות בחודש</div>
+      </div>
+      <div style="text-align:left">
+        <div style="font-family:'Rubik';font-size:26px;font-weight:800;color:var(--accent);direction:ltr">${money(maxOperating)} ₪</div>
+        <div class="hint" style="text-align:left">רווח תפעולי מקס׳ · מחזור ${money(maxRevenue)}₪</div>
+      </div>
+    </div>
+    ${state.goalProfit>maxOperating? `<div class="hint" style="margin-top:10px;color:var(--amber)">⚠ יעד הרווח שלך (${money(state.goalProfit)}₪) גבוה מהתקרה האפשרית עם הצוות הנוכחי. תצטרך להגדיל את הצוות או את הקיבולת כדי להגיע אליו.</div>`:''}
+  </div>`;
   autoSizeInputs();
 }
 function setLabel(input){
