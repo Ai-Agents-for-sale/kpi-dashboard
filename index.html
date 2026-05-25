@@ -197,6 +197,8 @@ input,button,select{font-family:inherit}
   color:var(--txt-faint);font-size:11px;font-weight:700;display:inline-grid;place-items:center;cursor:pointer;
   flex-shrink:0;transition:.15s}
 .help:hover{border-color:var(--accent);color:var(--accent)}
+/* בטיחות: svg מוטבע בתוך span (אייקון ליד טקסט) לא יתנפח */
+span > svg:not([class]){width:16px;height:16px;flex-shrink:0;vertical-align:-2px}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;
   align-items:center;justify-content:center;padding:20px}
 .modal-bg.show{display:flex}
@@ -640,19 +642,11 @@ function renderBrk(plan){
   ${callsOver
     ? `<div class="notice warn" style="margin-top:14px;margin-bottom:0">${svg('info')}<div><b>היעד הזה לא ריאלי לצוות הנוכחי.</b> הוא דורש ${fmt(plan.calls)} שיחות בחודש, אבל ${teamSize} ${teamSize>1?'נציגים יכולים':'נציג יכול'} לבצע מקסימום ${fmt(capMonth)} שיחות. כדי שזה יהיה אפשרי: הוסף נציגים, הגדל שעות עבודה, או קצר את אורך השיחה (בנתוני בסיס).</div></div>`
     : `<div class="notice ok" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לעמוד בכמות השיחות שהיעד דורש — ${fmt(plan.calls)} מתוך ${fmt(capMonth)} אפשריות.</div></div>`}
-  <div style="margin-top:14px;padding:16px;background:var(--bg-2);border:1px solid var(--line);border-radius:12px">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-      <div>
-        <div style="font-size:13px;color:var(--txt-dim);display:flex;align-items:center;gap:7px">${svg('flag')} תקרת הרווח עם הצוות הנוכחי (${teamSize} ${teamSize>1?'נציגים':'נציג'})</div>
-        <div class="hint" style="margin-top:4px">המקסימום שאפשר להגיע אליו אם הצוות עובד בקיבולת מלאה — ${fmt(capMonth)} שיחות, ${fmt1(maxClients)} לקוחות בחודש</div>
-      </div>
-      <div style="text-align:left">
-        <div style="font-family:'Rubik';font-size:26px;font-weight:800;color:var(--accent);direction:ltr">${money(maxOperating)} ₪</div>
-        <div class="hint" style="text-align:left">רווח תפעולי מקס׳ · מחזור ${money(maxRevenue)}₪</div>
-      </div>
-    </div>
-    ${state.goalProfit>maxOperating? `<div class="hint" style="margin-top:10px;color:var(--amber)">⚠ יעד הרווח שלך (${money(state.goalProfit)}₪) גבוה מהתקרה האפשרית עם הצוות הנוכחי. תצטרך להגדיל את הצוות או את הקיבולת כדי להגיע אליו.</div>`:''}
-  </div>`;
+  <div style="margin-top:14px;padding:13px 16px;background:var(--bg-2);border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+    <span style="font-size:13.5px;color:var(--txt-dim)">תקרת רווח עם הצוות הנוכחי (${teamSize} ${teamSize>1?'נציגים':'נציג'}, ${fmt1(maxClients)} לקוחות בקיבולת מלאה)</span>
+    <span style="font-family:'Rubik';font-weight:800;font-size:18px;color:var(--accent);direction:ltr;white-space:nowrap">${money(maxOperating)} ₪ <span style="font-size:12px;color:var(--txt-faint);font-weight:500">רווח · ${money(maxRevenue)}₪ מחזור</span></span>
+  </div>
+  ${state.goalProfit>maxOperating? `<div class="hint" style="margin-top:8px;color:var(--amber)">⚠ יעד הרווח שלך (${money(state.goalProfit)}₪) גבוה מהתקרה האפשרית עם הצוות הנוכחי — תצטרך להגדיל צוות או קיבולת.</div>`:''}`;
   autoSizeInputs();
 }
 function setLabel(input){
