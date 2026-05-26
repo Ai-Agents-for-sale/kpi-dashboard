@@ -307,6 +307,7 @@ const DEFAULTS = {
   costPerLead:10, answerRate:75, closeRate:14, avgMonths:3, setupFee:1000,
   salesCommPct:40, retainer:300, fixedCosts:12000, callMin:35, onboardMin:35,
   onboardCostHr:0, goalProfit:30000, daysMonth:30, workHoursDay:6, workDaysMonth:22, teamSize:2,
+  actBudget:'', actLeads:'', actCloses:'', actDays:'',
   labels:{}, reps:[
     {id:1,name:'איש מכירות 1',closeRate:20,commGoal:6000,closedDeals:0,daysPassed:0},
     {id:2,name:'איש מכירות 2',closeRate:20,commGoal:6000,closedDeals:0,daysPassed:0},
@@ -568,8 +569,33 @@ function renderGoals(){
     <div style="margin-bottom:14px"><span class="tag purple">אחוז המרה אפקטיבי: <span id="effShow"></span></span>
       <span class="hint" style="display:inline;margin-right:8px">${state.answerRate}% מענה × ${state.closeRate}% סגירה — שנה בנתוני בסיס</span></div>
     <div class="brk" id="brkBox"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="card-h"><h3>${T('actual_perf','השוואה למה שקרה בפועל החודש')} ${help('actual')}</h3><span class="tag amber">בפועל</span></div>
+    <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px">הזן מה שכבר קרה החודש — וראה איך אתה עומד מול היעד, מה המחירים האמיתיים, ומה הרווח הצפוי בקצב הנוכחי. אפשר למלא רק חלק מהשדות — מה שאי אפשר לחשב יוצג כ-"—".</p>
+    <div class="grid cols-4" style="margin-bottom:8px">
+      ${actInput('actBudget','תקציב שיווק שיצא','₪','wallet','amber')}
+      ${actInput('actLeads','לידים שנכנסו','','lead','blue')}
+      ${actInput('actCloses','סגירות שהיו','','conv','green')}
+      ${actInput('actDays','ימים שעברו בחודש','ימים','calendar','purple')}
+    </div>
+    <div id="actResults" style="margin-top:16px"></div>
   </div>`;
   onGoalProfit(state.goalProfit);
+}
+function actInput(key,label,affix,icon,color){
+  return `<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:14px">
+    <div style="display:flex;align-items:center;gap:7px;color:var(--txt-dim);font-size:12.5px;margin-bottom:9px">
+      <span style="color:${COLORS[color]};display:inline-flex">${svg(icon)}</span>${label}</div>
+    <div class="field" style="width:100%">${affix?`<span class="affix">${affix}</span>`:''}
+      <input type="number" placeholder="—" value="${state[key]}" data-key="${key}" oninput="onActInput(this)"></div>
+  </div>`;
+}
+function onActInput(input){
+  const v=input.value;
+  state[input.dataset.key] = v===''? '' : (parseFloat(v)||0);
+  saveState(); refreshActual();
 }
 function onGoalProfit(v){
   const p=parseFloat(v)||0; state.goalProfit=p; saveState(); syncGoalInputs();
@@ -578,6 +604,7 @@ function onGoalProfit(v){
   const r=document.getElementById('gR'); if(r&&document.activeElement!==r) r.value=Math.round(plan.revenue);
   if(document.getElementById('gRres')) document.getElementById('gRres').innerHTML=revQuick(plan);
   renderBrk(plan);
+  refreshActual();
 }
 function onGoalRev(v){
   const rev=parseFloat(v)||0; const plan=profitFromRevenue(rev);
@@ -586,6 +613,7 @@ function onGoalRev(v){
   const p=document.getElementById('gP'); if(p&&document.activeElement!==p) p.value=Math.round(plan.operating);
   if(document.getElementById('gPres')) document.getElementById('gPres').innerHTML=goalQuick(plan);
   renderBrk(plan);
+  refreshActual();
 }
 function goalQuick(plan){return `<div class="statlist">
   ${slRow('green','לקוחות חדשים',fmt1(plan.clients))}
@@ -648,6 +676,143 @@ function renderBrk(plan){
   </div>
   ${state.goalProfit>maxOperating? `<div class="hint" style="margin-top:8px;color:var(--amber)">⚠ יעד הרווח שלך (${money(state.goalProfit)}₪) גבוה מהתקרה האפשרית עם הצוות הנוכחי — תצטרך להגדיל צוות או קיבולת.</div>`:''}`;
   autoSizeInputs();
+}
+
+/* חישוב והצגת הביצוע בפועל מול היעד */
+function refreshActual(){
+  const box=document.getElementById('actResults'); if(!box) return;
+  const c=compute();
+  const num=v=> (v===''||v==null)? null : (parseFloat(v)||0);
+  const budget=num(state.actBudget), leads=num(state.actLeads), closes=num(state.actCloses), days=num(state.actDays);
+  const dash='<span style="color:var(--txt-faint)">—</span>';
+  const goalClients=clientsForProfit(state.goalProfit);
+
+  // מחירים אמיתיים
+  const cpl = (budget!=null&&leads>0) ? budget/leads : null;            // מחיר ליד אמיתי
+  const convRate = (leads>0&&closes!=null) ? closes/leads*100 : null;   // המרה אמיתית
+  const cacMkt = (budget!=null&&closes>0) ? budget/closes : null;       // עלות לקוח (שיווק)
+  const cacFull = (cacMkt!=null) ? cacMkt+c.commCost : null;            // עלות לקוח מלאה
+  // רווח בפועל עד כה
+  let profitSoFar=null;
+  if(closes!=null){
+    profitSoFar = closes*c.revPerClient - ((budget||0) + closes*c.commCost);
+  }
+  // קצב ותחזית
+  let pace=null, projCloses=null, projOperating=null;
+  if(closes!=null && days>0){
+    pace=closes/days; projCloses=pace*state.daysMonth;
+    const projRev=projCloses*c.revPerClient;
+    const projBudget=(budget!=null)? budget/days*state.daysMonth : projCloses*c.leadsPerClient*state.costPerLead;
+    const projVar=projBudget + projCloses*c.commCost;
+    projOperating=projRev - projVar - state.fixedCosts;
+  }
+  // מול היעד
+  const remaining = closes!=null ? Math.max(goalClients-closes,0) : null;
+  const daysLeft = days!=null ? Math.max(state.daysMonth-days,0) : null;
+  const perDay = (remaining!=null&&daysLeft!=null) ? (daysLeft>0?remaining/daysLeft:remaining) : null;
+  const onTrackGoal = projOperating!=null ? projOperating>=state.goalProfit : null;
+
+  // יעדים להשוואה
+  const cplTarget=state.costPerLead;
+  const convTarget=c.effConv*100;
+  const cacTarget=c.cac;                          // עלות לקוח ביעד (שיווק+עמלה)
+  // עוגן להשפעות כספיות: לקוחות מוקרנים לחודש (אם אפשר), אחרת לקוחות בפועל
+  const anchorClients = projCloses!=null ? projCloses : (closes!=null?closes:null);
+  // השפעת מחיר ליד: פער × לידים מוקרנים
+  const projLeads = (leads!=null&&days>0) ? leads/days*state.daysMonth : (anchorClients!=null&&convRate>0? anchorClients/(convRate/100):null);
+  const cplImpact = (cpl!=null&&projLeads!=null) ? -(cpl-cplTarget)*projLeads : null;
+  // השפעת אחוז המרה: כמה שיווק חוסכים/מבזבזים מול היעד, לאותם לקוחות
+  let convImpact=null;
+  if(convRate>0 && anchorClients!=null){
+    const leadsAtTarget=anchorClients/(convTarget/100), leadsAtReal=anchorClients/(convRate/100);
+    convImpact=(leadsAtTarget-leadsAtReal)*state.costPerLead; // חיובי=חוסך (המרה טובה יותר)
+  }
+  // השפעת עלות לקוח: פער × לקוחות מוקרנים
+  const cacImpact = (cacFull!=null&&anchorClients!=null) ? -(cacFull-cacTarget)*anchorClients : null;
+
+  const anyData = budget!=null||leads!=null||closes!=null;
+  if(!anyData){
+    box.innerHTML=`<div class="hint" style="text-align:center;padding:8px">מלא את השדות למעלה כדי לראות את ההשוואה לביצוע בפועל.</div>`;
+    return;
+  }
+
+  // עזר לפער: מחזיר טקסט צבעוני. goodIfLower=true אם ערך נמוך יותר טוב (מחיר/עלות)
+  const gapTxt=(act,target,goodIfLower,suffix='',f=fmt)=>{
+    if(act==null) return '';
+    const diff=act-target; const good=goodIfLower? diff<=0 : diff>=0;
+    if(Math.abs(diff)<0.05) return `<span style="color:var(--accent);font-size:11.5px">תואם ליעד</span>`;
+    return `<span style="color:${good?'var(--accent)':'var(--red)'};font-size:11.5px">${diff>0?'+':''}${f(diff)}${suffix} מהיעד</span>`;
+  };
+
+  box.innerHTML=`
+    <div class="grid cols-3" style="margin-bottom:14px">
+      <div style="background:var(--bg-2);border-radius:12px;padding:15px;border:1px solid var(--line-soft)">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--txt-dim);font-size:12.5px;margin-bottom:8px"><span style="color:var(--amber)">${svg('wallet')}</span>מחיר ליד אמיתי</div>
+        <div style="font-family:'Rubik';font-size:22px;font-weight:700;direction:ltr;text-align:right">${cpl!=null?fmt1(cpl)+'₪':dash}</div>
+        <div class="hint" style="margin-top:3px">יעד: ${cplTarget}₪ · ${cpl!=null?gapTxt(cpl,cplTarget,true,'₪',fmt1):'צריך תקציב + לידים'}</div>
+        ${cplImpact!=null&&Math.abs(cpl-cplTarget)>=0.05?`<div class="hint" style="margin-top:4px;color:${cplImpact>=0?'var(--accent)':'var(--red)'}">השפעה על הרווח: ${cplImpact>=0?'+':''}${money(cplImpact)}₪ בחודש</div>`:''}
+      </div>
+      <div style="background:var(--bg-2);border-radius:12px;padding:15px;border:1px solid var(--line-soft)">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--txt-dim);font-size:12.5px;margin-bottom:8px"><span style="color:var(--purple)">${svg('percent')}</span>אחוז המרה אמיתי</div>
+        <div style="font-family:'Rubik';font-size:22px;font-weight:700;direction:ltr;text-align:right">${convRate!=null?fmt1(convRate)+'%':dash}</div>
+        <div class="hint" style="margin-top:3px">יעד: ${fmt1(convTarget)}% · ${convRate!=null?gapTxt(convRate,convTarget,false,'%',fmt1):'צריך לידים + סגירות'}</div>
+        ${convImpact!=null&&Math.abs(convRate-convTarget)>=0.05?`<div class="hint" style="margin-top:4px;color:${convImpact>=0?'var(--accent)':'var(--red)'}">השפעה על הרווח: ${convImpact>=0?'+':''}${money(convImpact)}₪ בחודש</div>`:''}
+      </div>
+      <div style="background:var(--bg-2);border-radius:12px;padding:15px;border:1px solid var(--line-soft)">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--txt-dim);font-size:12.5px;margin-bottom:8px"><span style="color:var(--red)">${svg('target')}</span>עלות לקוח אמיתית</div>
+        <div style="font-family:'Rubik';font-size:22px;font-weight:700;direction:ltr;text-align:right">${cacFull!=null?money(cacFull)+'₪':dash}</div>
+        <div class="hint" style="margin-top:3px">יעד: ${money(cacTarget)}₪ · ${cacFull!=null?gapTxt(cacFull,cacTarget,true,'₪'):'צריך תקציב + סגירות'}</div>
+        ${cacImpact!=null&&Math.abs(cacFull-cacTarget)>=0.5?`<div class="hint" style="margin-top:4px;color:${cacImpact>=0?'var(--accent)':'var(--red)'}">השפעה על הרווח: ${cacImpact>=0?'+':''}${money(cacImpact)}₪ בחודש</div>`:''}
+      </div>
+    </div>
+    <table class="kpi-table">
+      <thead><tr><th>מדד</th><th style="text-align:center">בפועל / צפי</th><th style="text-align:center;color:var(--txt-faint)">יעד</th><th style="text-align:center">פער</th></tr></thead>
+      <tbody>
+        ${actRow4('לקוחות שנסגרו עד כה', closes!=null?fmt1(closes):dash, fmt1(goalClients), closes!=null?actGap(closes-goalClients,false,'',fmt1):'')}
+        ${actRow4('תחזית סגירות לסוף החודש', projCloses!=null?fmt1(projCloses):dash, fmt1(goalClients), projCloses!=null?actGap(projCloses-goalClients,false,'',fmt1):'')}
+        ${actRow4('קצב נדרש ליום מול בפועל', perDay!=null?fmt1(perDay):dash, fmt1(goalClients/state.daysMonth), (perDay!=null&&pace!=null)?actGap(pace-perDay,false,'/יום',fmt1):'')}
+        ${actRow4('הקצב הנוכחי (סגירות ביום)', pace!=null?fmt1(pace):dash, fmt1(goalClients/state.daysMonth), pace!=null?actGap(pace-goalClients/state.daysMonth,false,'/יום',fmt1):'')}
+        ${actRow4('כמה עוד צריך עד היעד', remaining!=null?fmt1(remaining):dash, '—', '')}
+      </tbody>
+    </table>
+    <div class="split" style="margin-top:14px">
+      <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:15px">
+        <div class="hint">רווח תפעולי עד כה (מהסגירות שכבר היו)</div>
+        <div style="font-family:'Rubik';font-size:22px;font-weight:800;color:${profitSoFar!=null&&profitSoFar>=0?'var(--accent)':(profitSoFar!=null?'var(--red)':'var(--txt-faint)')};direction:ltr;text-align:right;margin-top:4px">${profitSoFar!=null?money(profitSoFar)+' ₪':dash}</div>
+      </div>
+      <div style="background:var(--bg-2);border:1px solid ${projOperating!=null?(onTrackGoal?'rgba(61,220,151,.3)':'rgba(255,107,107,.3)'):'var(--line-soft)'};border-radius:12px;padding:16px">
+        <div class="hint" style="margin-bottom:10px">רווח תפעולי צפוי בקצב הזה (סוף החודש)</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+          <div>
+            <div style="font-size:11.5px;color:var(--txt-faint)">צפוי</div>
+            <div style="font-family:'Rubik';font-size:24px;font-weight:800;color:${projOperating!=null?(onTrackGoal?'var(--accent)':'var(--amber)'):'var(--txt-faint)'};direction:ltr">${projOperating!=null?money(projOperating)+'₪':dash}</div>
+          </div>
+          <div>
+            <div style="font-size:11.5px;color:var(--txt-faint)">יעד</div>
+            <div style="font-family:'Rubik';font-size:24px;font-weight:700;color:var(--txt-dim);direction:ltr">${money(state.goalProfit)}₪</div>
+          </div>
+          <div>
+            <div style="font-size:11.5px;color:var(--txt-faint)">פער</div>
+            <div style="font-family:'Rubik';font-size:24px;font-weight:800;direction:ltr;color:${projOperating!=null?(projOperating>=state.goalProfit?'var(--accent)':'var(--red)'):'var(--txt-faint)'}">${projOperating!=null?(projOperating-state.goalProfit>=0?'+':'')+money(projOperating-state.goalProfit)+'₪':dash}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    ${onTrackGoal!=null ? `<div class="notice ${onTrackGoal?'ok':'warn'}" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>${onTrackGoal
+        ? 'בקצב הנוכחי תעבור את יעד הרווח ('+money(state.goalProfit)+'₪). כל הכבוד!'
+        : 'בקצב הנוכחי תגיע ל-'+money(projOperating)+'₪ — מתחת ליעד ('+money(state.goalProfit)+'₪). צריך להגביר קצב: '+(perDay!=null?fmt1(perDay)+' סגירות ביום':'יותר סגירות ביום')+'.'}</div></div>` : ''}`;
+}
+function actRow4(label,val,target,gap){
+  return `<tr><td style="font-size:13.5px;color:var(--txt-dim)">${label}</td>
+    <td style="text-align:center;font-family:'Rubik';font-weight:700;direction:ltr">${val}</td>
+    <td style="text-align:center;font-family:'Rubik';font-weight:600;direction:ltr;color:var(--txt-faint);font-size:13px">${target}</td>
+    <td style="text-align:center;font-size:12.5px;direction:ltr">${gap||'<span style="color:var(--txt-faint)">—</span>'}</td></tr>`;
+}
+/* פער צבעוני לטבלה. goodIfLower=true אם פער שלילי טוב */
+function actGap(diff,goodIfLower,suffix='',f=fmt){
+  if(Math.abs(diff)<0.05) return `<span style="color:var(--accent)">תואם</span>`;
+  const good=goodIfLower? diff<=0 : diff>=0;
+  return `<span style="color:${good?'var(--accent)':'var(--red)'};font-weight:700">${diff>0?'+':''}${f(diff)}${suffix}</span>`;
 }
 function setLabel(input){
   const key=input.dataset.lblkey; const val=input.value.trim();
@@ -1203,6 +1368,7 @@ const HELP={
   repcompany:{t:'הקשר בין האישי לחברה',body:`יעד החברה דורש מספר מסוים של לקוחות. הוא מתחלק בין אנשי המכירות <b>לפי אחוז הסגירה</b> — מי שסוגר יותר טוב מקבל נתח גדול יותר.<br><br>הטבלה מראה את אותם נתונים פעמיים: לפי היעד האישי שהזנת, ולפי החלק שלך ביעד החברה. אם החלק בחברה גבוה מהיעד האישי — יש פער שצריך לסגור.`,f:'חלק ביעד = (אחוז סגירה שלך ÷ סך הצוות) × לקוחות היעד'},
   twoconv:{t:'תכנון מול ביצוע — אחוז המרה',body:`<b>אחוז המרה ביעד</b> = מה שהגדרת בנתוני בסיס, הבסיס לכל התכנון.<br><br><b>אחוז המרה בפועל</b> = ממוצע אחוזי הסגירה שאנשי המכירות הזינו במסכים האישיים שלהם.<br><br>אם הביצוע נמוך מהתכנון — באותו תקציב שיווק תקבל פחות לקוחות, ולכן פחות רווח. כך רואים את הפער בין מה שתוכנן למה שקורה.`,f:'בפועל = אחוז מענה × ממוצע סגירה של הצוות'},
   capacity:{t:'קיבולת צוות',body:`כמה שיחות כל הצוות יכול להוציא בחודש יחד. מחושב לפי כמה שיחות איש אחד יכול לעשות (לפי אורך השיחה ושעות העבודה), כפול מספר אנשי המכירות.<br><br>זה מראה לך את התקרה — אם היעד דורש יותר שיחות מהקיבולת, צריך עוד אנשי מכירות או יותר שעות.`,f:'שיחות לחודש לאיש × מספר אנשי מכירות'},
+  actual:{t:'השוואה לביצוע בפועל',body:`הזן מה שכבר קרה החודש — תקציב שיווק שיצא, לידים שנכנסו, סגירות שהיו, וכמה ימים עברו. המערכת מחשבת מזה את המחירים האמיתיים (מול ההנחות בנתוני בסיס), כמה צריך עוד כדי לעמוד ביעד, ומה הרווח הצפוי בקצב הנוכחי.<br><br>אפשר למלא רק חלק מהשדות — כל מדד שאי אפשר לחשב בלי הנתון שלו יוצג כ-"—".`,f:'מחיר ליד אמיתי = תקציב ÷ לידים · המרה אמיתית = סגירות ÷ לידים'},
   weighted:{t:'חלוקה לפי ביצועים — איך זה עובד',body:`יעד החברה (מספר הלקוחות) מתחלק בין אנשי המכירות <b>לפי אחוז הסגירה</b> של כל אחד. מחברים את כל אחוזי הסגירה, וכל אחד מקבל את היחס שלו מתוך הסכום.<br><br>דוגמה: דני 25% ומאיה 15%. סכום = 40. דני מקבל 25/40 = 62% מהיעד, מאיה 15/40 = 38%.<br><br><b>שיחות נדרשות</b> = כמה שיחות (שענו) כל אחד צריך כדי לסגור את היעד שלו, לפי אחוז הסגירה האישי. אם זה עובר את הקיבולת המקסימלית — מופיעה אזהרה, כי היעד לא ריאלי.`,f:'חלק = (אחוז סגירה שלך ÷ סך הצוות) × יעד · שיחות = לקוחות ÷ אחוז סגירה'},
 };
 function help(key){return `<span class="help" onclick="openHelp('${key}')">?</span>`;}
