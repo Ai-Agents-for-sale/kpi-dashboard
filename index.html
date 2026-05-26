@@ -838,27 +838,20 @@ function repCalc(r){
   const co_leads=repEff>0 ? co_deals/repEff : 0;
   const co_marketing=co_leads*state.costPerLead;
   const co_comm=co_deals*commCost;
+  const targetDeals=Math.max(p_deals,co_deals);
+  const remaining=Math.max(targetDeals-r.closedDeals,0);
   const daysLeft=Math.max(state.daysMonth-r.daysPassed,0);
+  const perDayNeeded=daysLeft>0 ? remaining/daysLeft : remaining;
   const pace=r.daysPassed>0 ? r.closedDeals/r.daysPassed : 0;
   const projected=pace*state.daysMonth;
-  // מעקב מול היעד האישי
-  const p_remaining=Math.max(p_deals-r.closedDeals,0);
-  const p_perDay=daysLeft>0 ? p_remaining/daysLeft : p_remaining;
-  const p_onTrack=projected>=p_deals;
-  const p_pct=p_deals>0 ? projected/p_deals*100 : 0;
-  // מעקב מול החלק ביעד החברה
-  const co_remaining=Math.max(co_deals-r.closedDeals,0);
-  const co_perDay=daysLeft>0 ? co_remaining/daysLeft : co_remaining;
-  const co_onTrack=projected>=co_deals;
-  const co_pct=co_deals>0 ? projected/co_deals*100 : 0;
+  const onTrack=projected>=targetDeals;
   const companyClose=state.closeRate;
   const belowCompany=(parseFloat(r.closeRate)||0)<companyClose;
   const gap=co_deals-p_deals;
   const p_dealsPerDay=p_deals/state.daysMonth; // מכירות ביום לפי היעד האישי
   return {c,commCost,p_deals,p_calls,p_leads,p_marketing,p_comm:r.commGoal,co_deals,co_calls,
-    co_leads,co_marketing,co_comm,daysLeft,pace,projected,
-    p_remaining,p_perDay,p_onTrack,p_pct,co_remaining,co_perDay,co_onTrack,co_pct,
-    companyClose,belowCompany,gap,p_dealsPerDay};
+    co_leads,co_marketing,co_comm,targetDeals,remaining,daysLeft,perDayNeeded,pace,projected,
+    onTrack,companyClose,belowCompany,gap,p_dealsPerDay};
 }
 
 function renderRep(id){
@@ -917,26 +910,19 @@ function refreshRepDerived(id){
     slRow('amber','כמה אני מרוויח על כל עסקה',money(k.commCost)+' ₪'));
 
   set('repProgress',
-    `<div class="statlist" style="margin-bottom:14px">
+    `<div class="statlist">
+      ${slRow(k.remaining>0?'amber':'green','כמה עסקאות נשארו לי עד היעד',fmt1(k.remaining))}
       ${slRow('blue','כמה ימים נשארו עד סוף החודש',k.daysLeft)}
+      ${slRow(k.perDayNeeded>k.pace&&k.pace>0?'red':'purple','כמה עסקאות לסגור כל יום מעכשיו כדי להספיק','<b>'+fmt1(k.perDayNeeded)+'</b>')}
       ${slRow('green','הקצב שלי עד עכשיו (עסקאות ביום)',fmt1(k.pace))}
-      ${slRow('purple','תחזית: כמה אסגור עד סוף החודש',fmt1(k.projected))}
     </div>
-    <table class="kpi-table">
-      <thead><tr><th>מול היעד</th><th style="text-align:center;color:var(--accent)">היעד שלי (${fmt1(k.p_deals)})</th><th style="text-align:center;color:var(--blue)">יעד החברה (${fmt1(k.co_deals)})</th></tr></thead>
-      <tbody>
-        <tr><td style="font-size:13px;color:var(--txt-dim)">כמה עסקאות נשארו</td>
-          <td style="text-align:center;font-family:'Rubik';font-weight:700;color:${k.p_remaining>0?'var(--amber)':'var(--accent)'}">${fmt1(k.p_remaining)}</td>
-          <td style="text-align:center;font-family:'Rubik';font-weight:700;color:${k.co_remaining>0?'var(--amber)':'var(--accent)'}">${fmt1(k.co_remaining)}</td></tr>
-        <tr><td style="font-size:13px;color:var(--txt-dim)">כמה לסגור כל יום מעכשיו</td>
-          <td style="text-align:center;font-family:'Rubik';font-weight:700;color:${k.p_perDay>k.pace&&k.pace>0?'var(--red)':'var(--txt)'}">${fmt1(k.p_perDay)}</td>
-          <td style="text-align:center;font-family:'Rubik';font-weight:700;color:${k.co_perDay>k.pace&&k.pace>0?'var(--red)':'var(--txt)'}">${fmt1(k.co_perDay)}</td></tr>
-        <tr><td style="font-size:13px;color:var(--txt-dim)">תחזית מול היעד</td>
-          <td style="text-align:center;font-family:'Rubik';font-weight:700;color:${k.p_onTrack?'var(--accent)':'var(--red)'}">${fmt1(k.p_pct)}%</td>
-          <td style="text-align:center;font-family:'Rubik';font-weight:700;color:${k.co_onTrack?'var(--accent)':'var(--red)'}">${fmt1(k.co_pct)}%</td></tr>
-      </tbody>
-    </table>
-    <div class="hint" style="margin-top:10px">${k.p_onTrack&&k.co_onTrack?'✓ בקצב הזה תגיע לשני היעדים':(k.p_onTrack?'✓ תגיע ליעד האישי, אבל ⚠ מתחת ליעד החברה':'⚠ בקצב הזה לא תגיע ליעד האישי')}</div>`);
+    <div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:7px">
+        <span style="color:var(--txt-dim)">תחזית לסוף החודש מול היעד</span>
+        <b style="font-family:'Rubik';color:${k.onTrack?'var(--accent)':'var(--red)'}">${fmt1(k.targetDeals>0?k.projected/k.targetDeals*100:0)}%</b></div>
+      <div class="goal-prog"><div class="fill ${k.onTrack?'':'warn'}" style="width:${Math.min(k.targetDeals>0?k.projected/k.targetDeals*100:0,100)}%"></div></div>
+      <div class="hint" style="color:${k.onTrack?'var(--accent)':'var(--red)'}">${k.onTrack?'✓ בקצב הזה תגיע ליעד ('+fmt1(k.projected)+' צפויות)':'⚠ בקצב הזה '+fmt1(k.projected)+' עסקאות בלבד — מתחת ליעד'}</div>
+    </div>`);
 
   set('repGapTag', `<span class="tag ${k.gap>0.05?'red':'green'}">${k.gap>0.05?'פער של '+fmt1(k.gap)+' עסקאות':'מכוסה'}</span>`);
 
