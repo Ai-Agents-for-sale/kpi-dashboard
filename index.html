@@ -421,7 +421,7 @@ function historyAverages(s = state){
     if(m.budget!=null && m.leads>0) cpl.push(m.budget/m.leads);
     if(m.leads>0 && m.closes!=null) conv.push(m.closes/m.leads*100);
     if(m.budget!=null && m.closes>0) cac.push(m.budget/m.closes + c.commCost + c.onbCommCost + c.procCost + c.onbHourlyCost);
-    if(m.setupRev!=null && m.closes>0) setupAvg.push(m.setupRev/m.closes);
+    if(m.setupRev!=null) setupAvg.push(m.setupRev);
     if(m.retainerRev!=null) retainerTotal.push(m.retainerRev);
   }
   const avg = a => a.length? a.reduce((x,y)=>x+y,0)/a.length : null;
@@ -1347,7 +1347,7 @@ function renderSettings(){
   <div class="notice">${svg('info')}<div>אפשר לערוך גם את <b>שם</b> כל מדד (לחיצה על השם) וגם את הערך. הכל נשמר בדפדפן. לגיבוי קבוע — ייצא קובץ.</div></div>
   <div class="card" style="margin-bottom:16px">
     <div class="card-h"><h3>${T('core_data','נתוני ליבה')}</h3></div>
-    <table class="kpi-table"><thead><tr><th>מדד</th><th>ערך</th><th>תפקיד בחישוב</th></tr></thead><tbody>
+    <table class="kpi-table"><thead><tr><th>מדד</th><th>ערך</th><th style="color:var(--amber)">ממוצע היסטורי</th><th>תפקיד בחישוב</th></tr></thead><tbody>
       ${Object.keys(META).map(k=>settingRow(k)).join('')}
       ${settingRow('daysMonth',{label:'ימים בחודש (לפירוק יומי)',sub:'לחלוקת יעדים ליום',affix:'ימים',icon:'calendar',color:'blue'})}
       ${settingRow('workDaysMonth',{label:'ימי עבודה בחודש',sub:'לקיבולת שיחות',affix:'ימים',icon:'calendar',color:'purple'})}
@@ -1384,28 +1384,25 @@ function renderHistoryTable(){
   box.innerHTML=`
     <div style="overflow-x:auto">
     <table class="kpi-table" style="min-width:760px">
-      <thead><tr><th>חודש</th><th>תקציב שיווק</th><th>לידים</th><th>סגירות</th><th>סך הקמה</th><th>סך ריטיינרים</th><th>מחושב</th></tr></thead>
+      <thead><tr><th>חודש</th><th>תקציב שיווק</th><th>לידים</th><th>סגירות</th><th>מחיר הקמה ממוצע</th><th>מחיר ריטיינר ממוצע</th><th>מחושב</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    ${(()=>{ const h=historyAverages(); if(!h.costPerLead&&!h.effConv&&!h.cac&&!h.setupAvg&&!h.retainerTotalAvg) return '';
+    ${(()=>{ const h=historyAverages(); if(!h.costPerLead&&!h.effConv&&!h.cac) return '';
       return `<div id="histAvgBar" style="margin-top:14px;padding:13px 16px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between">
         <b style="font-size:13.5px;color:var(--txt-dim)">ממוצעים מהנתונים שהזנת:</b>
         ${h.costPerLead!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">מחיר ליד:</span> <b style="font-family:'Rubik';color:var(--blue);direction:ltr">${fmt1(h.costPerLead)}₪</b></span>`:''}
         ${h.effConv!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">המרה אפקטיבית:</span> <b style="font-family:'Rubik';color:var(--purple);direction:ltr">${fmt1(h.effConv)}%</b></span>`:''}
         ${h.cac!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">עלות לקוח:</span> <b style="font-family:'Rubik';color:var(--red);direction:ltr">${money(h.cac)}₪</b></span>`:''}
-        ${h.setupAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">הקמה ממ׳:</span> <b style="font-family:'Rubik';color:var(--green);direction:ltr">${money(h.setupAvg)}₪</b></span>`:''}
-        ${h.retainerTotalAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">סך ריטיינרים ממ׳:</span> <b style="font-family:'Rubik';color:var(--amber);direction:ltr">${money(h.retainerTotalAvg)}₪</b></span>`:''}
       </div>`; })()}`;
   autoSizeInputs();
 }
 function histRowSummary(h){
   const num=v=> v===''||v==null?null:parseFloat(v)||0;
-  const b=num(h.budget),l=num(h.leads),cl=num(h.closes),sr=num(h.setupRev),rr=num(h.retainerRev);
+  const b=num(h.budget),l=num(h.leads),cl=num(h.closes);
   const parts=[];
-  if(b!=null&&l>0) parts.push('ליד '+fmt1(b/l)+'₪');
+  if(b!=null&&l>0) parts.push('מחיר ליד '+fmt1(b/l)+'₪');
   if(l>0&&cl!=null) parts.push('המרה '+fmt1(cl/l*100)+'%');
-  if(sr!=null&&cl>0) parts.push('הקמה ממ׳ '+fmt(sr/cl)+'₪');
-  if(rr!=null) parts.push('ריטיינרים '+fmt(rr)+'₪');
+  if(b!=null&&cl>0) parts.push('שיווק ללקוח '+fmt(b/cl)+'₪');
   return parts.join(' · ')||'—';
 }
 function updateHistory(i,field,val){
@@ -1418,15 +1415,13 @@ function updateHistory(i,field,val){
   if(summaryCells[i]) summaryCells[i].textContent=histRowSummary(state.history[i]);
   // עדכון שורת הממוצעים — לפי id ייעודי, לא לדרוס את הטבלה
   const h=historyAverages();
-  const hasAvg=h.costPerLead||h.effConv||h.cac||h.setupAvg||h.retainerTotalAvg;
+  const hasAvg=h.costPerLead||h.effConv||h.cac;
   let avgBar=document.getElementById('histAvgBar');
   if(hasAvg){
     const inner=`<b style="font-size:13.5px;color:var(--txt-dim)">ממוצעים מהנתונים שהזנת:</b>
         ${h.costPerLead!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">מחיר ליד:</span> <b style="font-family:'Rubik';color:var(--blue);direction:ltr">${fmt1(h.costPerLead)}₪</b></span>`:''}
         ${h.effConv!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">המרה אפקטיבית:</span> <b style="font-family:'Rubik';color:var(--purple);direction:ltr">${fmt1(h.effConv)}%</b></span>`:''}
-        ${h.cac!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">עלות לקוח:</span> <b style="font-family:'Rubik';color:var(--red);direction:ltr">${money(h.cac)}₪</b></span>`:''}
-        ${h.setupAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">הקמה ממ׳:</span> <b style="font-family:'Rubik';color:var(--green);direction:ltr">${money(h.setupAvg)}₪</b></span>`:''}
-        ${h.retainerTotalAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">סך ריטיינרים ממ׳:</span> <b style="font-family:'Rubik';color:var(--amber);direction:ltr">${money(h.retainerTotalAvg)}₪</b></span>`:''}`;
+        ${h.cac!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">עלות לקוח:</span> <b style="font-family:'Rubik';color:var(--red);direction:ltr">${money(h.cac)}₪</b></span>`:''}`;
     if(avgBar){
       avgBar.innerHTML=inner;
     } else {
@@ -1444,25 +1439,44 @@ function updateHistory(i,field,val){
 function settingRow(key,m){
   m=m||META[key];
   const hist=historyAverages();
-  let histTag='';
+  // ערך הממוצע ההיסטורי לכל KPI — או ריק אם אין נתון
+  let histVal='', histDiff=null;
   if(key==='costPerLead' && hist.costPerLead!=null){
-    const diff=state[key]-hist.costPerLead;
-    histTag=`<div style="margin-top:4px;font-size:11.5px"><span style="color:var(--txt-faint)">ממוצע ${hist.costPerLeadN} חודשים אחרונים:</span> <b style="color:${Math.abs(diff)<0.5?'var(--accent)':'var(--amber)'}">${fmt1(hist.costPerLead)}₪</b> ${Math.abs(diff)>=0.5?`<span style="color:${diff>0?'var(--accent)':'var(--red)'}">(${diff>0?'+':''}${fmt1(diff)} מהממוצע)</span>`:''}</div>`;
+    histVal=fmt1(hist.costPerLead)+'₪'; histDiff=state[key]-hist.costPerLead;
   }
-  if((key==='closeRate'||key==='answerRate') && hist.effConv!=null){
+  else if(key==='answerRate' && hist.effConv!=null){
+    // ממוצע אחוז מענה לבדו לא קיים — מציגים את המרה אפקטיבית בפועל
     const planned=(state.answerRate/100)*(state.closeRate/100)*100;
-    const diff=planned-hist.effConv;
-    histTag=`<div style="margin-top:4px;font-size:11.5px"><span style="color:var(--txt-faint)">המרה אפקטיבית בפועל (${hist.effConvN} חודשים):</span> <b style="color:${Math.abs(diff)<0.5?'var(--accent)':'var(--amber)'}">${fmt1(hist.effConv)}%</b> ${Math.abs(diff)>=0.5?`<span style="color:${diff<0?'var(--accent)':'var(--red)'}">(תוכנן ${fmt1(planned)}%)</span>`:''}</div>`;
+    histVal=fmt1(hist.effConv)+'% המרה אפקט׳'; histDiff=planned-hist.effConv;
   }
-  if(key==='setupFee' && hist.setupAvg!=null){
-    const diff=state[key]-hist.setupAvg;
-    histTag=`<div style="margin-top:4px;font-size:11.5px"><span style="color:var(--txt-faint)">ממוצע ${hist.setupAvgN} חודשים אחרונים:</span> <b style="color:${Math.abs(diff)<10?'var(--accent)':'var(--amber)'}">${money(hist.setupAvg)}₪</b> ${Math.abs(diff)>=10?`<span style="color:${diff<=0?'var(--accent)':'var(--red)'}">(${diff>0?'+':''}${money(diff)} מהממוצע)</span>`:''}</div>`;
+  else if(key==='closeRate' && hist.effConv!=null){
+    const planned=(state.answerRate/100)*(state.closeRate/100)*100;
+    histVal=fmt1(hist.effConv)+'% המרה אפקט׳'; histDiff=planned-hist.effConv;
+  }
+  else if(key==='setupFee' && hist.setupAvg!=null){
+    histVal=money(hist.setupAvg)+'₪'; histDiff=state[key]-hist.setupAvg;
+  }
+  else if(key==='retainer' && hist.retainerTotalAvg!=null){
+    histVal=money(hist.retainerTotalAvg)+'₪'; histDiff=state[key]-hist.retainerTotalAvg;
+  }
+  // עיצוב התא: ערך + פער קטן בצבע
+  let histCell='<span style="color:var(--txt-faint)">—</span>';
+  if(histVal){
+    let diffStr='';
+    if(histDiff!=null && Math.abs(histDiff)>=(key==='costPerLead'?0.5:(key==='setupFee'||key==='retainer'?10:0.5))){
+      // צבע: ירוק = ההנחה טובה למציאות, אדום = ההנחה רחוקה לרעה
+      // למחיר/עלות (costPerLead,setupFee,retainer) → ערך גבוה בהנחה זה טוב (אבל לא רלוונטי לרוב). פה נשים נטרלי - רק להראות פער.
+      const good=Math.abs(histDiff)<(key==='setupFee'||key==='retainer'?50:2);
+      diffStr=`<div style="font-size:11px;color:${good?'var(--accent)':'var(--amber)'};margin-top:2px">פער ${histDiff>0?'+':''}${key==='setupFee'||key==='retainer'?money(histDiff):fmt1(histDiff)}</div>`;
+    }
+    histCell=`<div style="font-family:'Rubik';font-weight:600;color:var(--amber);direction:ltr;font-size:13.5px">${histVal}</div>${diffStr}`;
   }
   return `<tr>
     <td><div class="kpi-row-lbl"><div class="kpi-row-ico" style="--ic-bg:var(--${m.color}-soft);--ic:${COLORS[m.color]}">${svg(m.icon)}</div>
-      <div><b><input class="lbl-edit" value="${L(key)}" data-lblkey="${key}" onchange="setLabel(this)" onclick="this.select()"></b><small>${m.sub}</small>${histTag}</div></div></td>
+      <div><b><input class="lbl-edit" value="${L(key)}" data-lblkey="${key}" onchange="setLabel(this)" onclick="this.select()"></b><small>${m.sub}</small></div></div></td>
     <td><div class="editable-cell"><div class="field w-sm"><span class="affix">${m.affix}</span>
       <input type="number" value="${state[key]}" data-key="${key}" oninput="onSetting(this)"></div></div></td>
+    <td style="text-align:center">${histCell}</td>
     <td style="color:var(--txt-faint);font-size:12.5px">${explainKey(key)}</td></tr>`;
 }
 function explainKey(key){return ({
