@@ -1388,7 +1388,7 @@ function renderHistoryTable(){
       <tbody>${rows}</tbody>
     </table></div>
     ${(()=>{ const h=historyAverages(); if(!h.costPerLead&&!h.effConv&&!h.cac&&!h.setupAvg&&!h.retainerTotalAvg) return '';
-      return `<div style="margin-top:14px;padding:13px 16px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between">
+      return `<div id="histAvgBar" style="margin-top:14px;padding:13px 16px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between">
         <b style="font-size:13.5px;color:var(--txt-dim)">ממוצעים מהנתונים שהזנת:</b>
         ${h.costPerLead!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">מחיר ליד:</span> <b style="font-family:'Rubik';color:var(--blue);direction:ltr">${fmt1(h.costPerLead)}₪</b></span>`:''}
         ${h.effConv!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">המרה אפקטיבית:</span> <b style="font-family:'Rubik';color:var(--purple);direction:ltr">${fmt1(h.effConv)}%</b></span>`:''}
@@ -1412,25 +1412,33 @@ function updateHistory(i,field,val){
   if(!state.history[i]) return;
   state.history[i][field] = field==='label' ? val : (val===''?'':(parseFloat(val)||0));
   saveState();
-  // עדכן רק את הסיכום והממוצעים — בלי לרנדר מחדש את כל הטבלה (שומר פוקוס)
   const box=document.getElementById('historyTable'); if(!box) return;
   // עדכון תא הסיכום בשורה הספציפית
   const summaryCells=box.querySelectorAll('tbody tr td:last-child');
   if(summaryCells[i]) summaryCells[i].textContent=histRowSummary(state.history[i]);
-  // עדכון שורת הממוצעים
-  const avgBar=box.querySelector(':scope > div');
-  if(avgBar){
-    const h=historyAverages();
-    if(h.costPerLead||h.effConv||h.cac||h.setupAvg||h.retainerTotalAvg){
-      avgBar.outerHTML=`<div style="margin-top:14px;padding:13px 16px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between">
-        <b style="font-size:13.5px;color:var(--txt-dim)">ממוצעים מהנתונים שהזנת:</b>
+  // עדכון שורת הממוצעים — לפי id ייעודי, לא לדרוס את הטבלה
+  const h=historyAverages();
+  const hasAvg=h.costPerLead||h.effConv||h.cac||h.setupAvg||h.retainerTotalAvg;
+  let avgBar=document.getElementById('histAvgBar');
+  if(hasAvg){
+    const inner=`<b style="font-size:13.5px;color:var(--txt-dim)">ממוצעים מהנתונים שהזנת:</b>
         ${h.costPerLead!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">מחיר ליד:</span> <b style="font-family:'Rubik';color:var(--blue);direction:ltr">${fmt1(h.costPerLead)}₪</b></span>`:''}
         ${h.effConv!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">המרה אפקטיבית:</span> <b style="font-family:'Rubik';color:var(--purple);direction:ltr">${fmt1(h.effConv)}%</b></span>`:''}
         ${h.cac!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">עלות לקוח:</span> <b style="font-family:'Rubik';color:var(--red);direction:ltr">${money(h.cac)}₪</b></span>`:''}
         ${h.setupAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">הקמה ממ׳:</span> <b style="font-family:'Rubik';color:var(--green);direction:ltr">${money(h.setupAvg)}₪</b></span>`:''}
-        ${h.retainerTotalAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">סך ריטיינרים ממ׳:</span> <b style="font-family:'Rubik';color:var(--amber);direction:ltr">${money(h.retainerTotalAvg)}₪</b></span>`:''}
-      </div>`;
-    } else { avgBar.remove(); }
+        ${h.retainerTotalAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">סך ריטיינרים ממ׳:</span> <b style="font-family:'Rubik';color:var(--amber);direction:ltr">${money(h.retainerTotalAvg)}₪</b></span>`:''}`;
+    if(avgBar){
+      avgBar.innerHTML=inner;
+    } else {
+      // לא קיים — ניצור אותו ונצמיד לסוף הטבלה
+      avgBar=document.createElement('div');
+      avgBar.id='histAvgBar';
+      avgBar.style.cssText='margin-top:14px;padding:13px 16px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between';
+      avgBar.innerHTML=inner;
+      box.appendChild(avgBar);
+    }
+  } else if(avgBar){
+    avgBar.remove();
   }
 }
 function settingRow(key,m){
