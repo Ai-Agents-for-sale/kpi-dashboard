@@ -306,8 +306,14 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 const DEFAULTS = {
   costPerLead:10, answerRate:75, closeRate:14, avgMonths:3, setupFee:1000,
   salesCommPct:40, retainer:300, fixedCosts:12000, callMin:35, onboardMin:35,
+  onboardCommPct:10, processingFeePct:1,
   onboardCostHr:0, goalProfit:30000, daysMonth:30, workHoursDay:6, workDaysMonth:22, teamSize:2,
   actBudget:'', actLeads:'', actCloses:'', actDays:'',
+  history:[
+    {label:'חודש −1', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
+    {label:'חודש −2', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
+    {label:'חודש −3', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
+  ],
   labels:{}, reps:[
     {id:1,name:'איש מכירות 1',closeRate:20,commGoal:6000,closedDeals:0,daysPassed:0},
     {id:2,name:'איש מכירות 2',closeRate:20,commGoal:6000,closedDeals:0,daysPassed:0},
@@ -325,7 +331,9 @@ const META = {
   fixedCosts:{label:'הוצאות קבועות', sub:'חודשי, קבוע', affix:'₪', icon:'building', color:'red'},
   callMin:{label:'אורך שיחת מכירה', sub:'ממוצע בדקות', affix:'דק׳', icon:'phone', color:'blue'},
   onboardMin:{label:'אורך פגישת אונבורדינג', sub:'לכל לקוח שנסגר', affix:'דק׳', icon:'handshake', color:'amber'},
-  onboardCostHr:{label:'עלות מבצע אונבורדינג', sub:'תשלום לספיר לשעה', affix:'₪/שע׳', icon:'wallet', color:'red'},
+  onboardCommPct:{label:'עמלת מבצע האונבורדינג', sub:'% מסך הריטיינרים', affix:'%', icon:'percent', color:'amber'},
+  processingFeePct:{label:'עמלת סליקה', sub:'% מכל תשלום (קארדקום)', affix:'%', icon:'wallet', color:'red'},
+  onboardCostHr:{label:'עלות מבצע אונבורדינג', sub:'תשלום לשעה (אם רלוונטי)', affix:'₪/שע׳', icon:'wallet', color:'red'},
 };
 // תוויות חינמיות שניתנות לעריכה גם הן (בפירוק היעד)
 const TEXT_LABELS = {
@@ -343,7 +351,7 @@ function loadState(){
 }
 function deepMerge(base, over){
   for(const k in over){
-    if(k==='reps'){ base.reps = over.reps; }
+    if(k==='reps' || k==='history'){ base[k] = over[k]; }
     else if(over[k] && typeof over[k]==='object' && !Array.isArray(over[k])) base[k]=deepMerge(base[k]||{},over[k]);
     else base[k]=over[k];
   }
@@ -367,18 +375,23 @@ function compute(s = state){
   const answer = s.answerRate/100;
   const close  = s.closeRate/100;
   const commPct= s.salesCommPct/100;
+  const onbCommPct = (s.onboardCommPct||0)/100;
+  const procPct = (s.processingFeePct||0)/100;
   const effConv = answer*close;                          // המרה אפקטיבית מליד ללקוח
 
-  const revPerClient   = s.setupFee + s.retainer*s.avgMonths;
+  const totalRetainer  = s.retainer*s.avgMonths;
+  const revPerClient   = s.setupFee + totalRetainer;
   const leadsPerClient = effConv>0 ? 1/effConv : 0;      // לידים ללקוח
   const callsPerClient = close>0 ? 1/close : 0;          // שיחות שענו ללקוח
   const onboardPerClient = 1;                            // פגישת אונבורדינג אחת ללקוח
   const onboardHrsPerClient = s.onboardMin/60;
 
-  const acqCost  = leadsPerClient * s.costPerLead;
-  const commCost = s.setupFee * commPct;
-  const onbCost  = onboardHrsPerClient * s.onboardCostHr;
-  const varCostPerClient = acqCost + commCost + onbCost;
+  const acqCost  = leadsPerClient * s.costPerLead;             // עלות שיווק ללקוח
+  const commCost = s.setupFee * commPct;                       // עמלת מכירה (% מהקמה)
+  const onbCommCost = totalRetainer * onbCommPct;              // עמלת אונבורדינג (% מסך ריטיינרים)
+  const procCost = revPerClient * procPct;                     // עמלת סליקה (% מכל ההכנסה)
+  const onbHourlyCost = onboardHrsPerClient * s.onboardCostHr; // עלות שעת אונבורדינג (אם רלוונטי)
+  const varCostPerClient = acqCost + commCost + onbCommCost + procCost + onbHourlyCost;
 
   const grossPerClient = revPerClient - varCostPerClient;
   const grossMarginPct = revPerClient>0 ? grossPerClient/revPerClient*100 : 0;
@@ -388,9 +401,37 @@ function compute(s = state){
   const callsPerDayPerRep = s.callMin>0 ? Math.floor((s.workHoursDay*60)/s.callMin) : 0;
   const callsPerMonthPerRep = callsPerDayPerRep * s.workDaysMonth;
 
-  return {answer,close,effConv,commPct,revPerClient,leadsPerClient,callsPerClient,
-    onboardPerClient,onboardHrsPerClient,acqCost,commCost,onbCost,varCostPerClient,
+  return {answer,close,effConv,commPct,onbCommPct,procPct,revPerClient,totalRetainer,leadsPerClient,callsPerClient,
+    onboardPerClient,onboardHrsPerClient,acqCost,commCost,onbCommCost,procCost,onbHourlyCost,varCostPerClient,
     grossPerClient,grossMarginPct,cac,ltvCacRatio,callsPerDayPerRep,callsPerMonthPerRep};
+}
+
+/* ממוצעים מהנתונים ההיסטוריים — מחזיר {costPerLead, effConv, cac} ממוצעים, או null אם אין מספיק */
+function historyAverages(s = state){
+  const c=compute(s);
+  const arr=(s.history||[]).map(h=>({
+    budget: h.budget===''||h.budget==null? null : parseFloat(h.budget)||0,
+    leads:  h.leads ===''||h.leads ==null? null : parseFloat(h.leads )||0,
+    closes: h.closes===''||h.closes==null? null : parseFloat(h.closes)||0,
+    setupRev: h.setupRev===''||h.setupRev==null? null : parseFloat(h.setupRev)||0,
+    retainerRev: h.retainerRev===''||h.retainerRev==null? null : parseFloat(h.retainerRev)||0,
+  }));
+  const cpl=[], conv=[], cac=[], setupAvg=[], retainerTotal=[];
+  for(const m of arr){
+    if(m.budget!=null && m.leads>0) cpl.push(m.budget/m.leads);
+    if(m.leads>0 && m.closes!=null) conv.push(m.closes/m.leads*100);
+    if(m.budget!=null && m.closes>0) cac.push(m.budget/m.closes + c.commCost + c.onbCommCost + c.procCost + c.onbHourlyCost);
+    if(m.setupRev!=null && m.closes>0) setupAvg.push(m.setupRev/m.closes);
+    if(m.retainerRev!=null) retainerTotal.push(m.retainerRev);
+  }
+  const avg = a => a.length? a.reduce((x,y)=>x+y,0)/a.length : null;
+  return {
+    costPerLead: avg(cpl), costPerLeadN: cpl.length,
+    effConv: avg(conv),    effConvN: conv.length,
+    cac:    avg(cac),      cacN:   cac.length,
+    setupAvg: avg(setupAvg), setupAvgN: setupAvg.length,
+    retainerTotalAvg: avg(retainerTotal), retainerTotalN: retainerTotal.length,
+  };
 }
 
 function planFromClients(clients, s = state){
@@ -511,7 +552,8 @@ function renderDashboard(){
         ${slRow('green','הכנסה כוללת מהלקוח',money(c.revPerClient)+' ₪')}
         ${slRow('blue',L('costPerLead')+' ('+fmt1(c.leadsPerClient)+' לידים)','−'+money(c.acqCost)+' ₪')}
         ${slRow('amber','עמלת מכירות ('+state.salesCommPct+'%)','−'+money(c.commCost)+' ₪')}
-        ${slRow('red','אונבורדינג ('+state.onboardMin+' דק׳)','−'+money(c.onbCost)+' ₪')}
+        ${slRow('red','אונבורדינג ('+state.onboardMin+' דק׳ + עמלה)','−'+money(c.onbCommCost+c.onbHourlyCost)+' ₪')}
+        ${slRow('red','עמלת סליקה ('+state.processingFeePct+'%)','−'+money(c.procCost)+' ₪')}
         ${slRow('green','רווח גולמי שנשאר','<b style="color:var(--accent)">'+money(c.grossPerClient)+' ₪</b>')}
       </div>
     </div>
@@ -690,20 +732,22 @@ function refreshActual(){
   // מחירים אמיתיים
   const cpl = (budget!=null&&leads>0) ? budget/leads : null;            // מחיר ליד אמיתי
   const convRate = (leads>0&&closes!=null) ? closes/leads*100 : null;   // המרה אמיתית
-  const cacMkt = (budget!=null&&closes>0) ? budget/closes : null;       // עלות לקוח (שיווק)
-  const cacFull = (cacMkt!=null) ? cacMkt+c.commCost : null;            // עלות לקוח מלאה
-  // רווח בפועל עד כה
+  const cacMkt = (budget!=null&&closes>0) ? budget/closes : null;       // עלות לקוח (שיווק בפועל)
+  const cacFull = (cacMkt!=null) ? cacMkt + c.commCost + c.onbCommCost + c.procCost + c.onbHourlyCost : null;            // עלות לקוח מלאה כולל כל העמלות
+  // רווח בפועל עד כה — תפעולי, כולל חלק יחסי של הוצאות קבועות לפי הימים שעברו
   let profitSoFar=null;
   if(closes!=null){
-    profitSoFar = closes*c.revPerClient - ((budget||0) + closes*c.commCost);
+    const grossSoFar = closes*c.revPerClient - ((budget||0) + closes*(c.commCost + c.onbCommCost + c.procCost + c.onbHourlyCost));
+    const proRatedFixed = days!=null ? state.fixedCosts*(Math.min(days,state.daysMonth)/state.daysMonth) : state.fixedCosts;
+    profitSoFar = grossSoFar - proRatedFixed;
   }
-  // קצב ותחזית
+  // קצב ותחזית — רווח צפוי לחודש שלם כולל כל העמלות
   let pace=null, projCloses=null, projOperating=null;
   if(closes!=null && days>0){
     pace=closes/days; projCloses=pace*state.daysMonth;
     const projRev=projCloses*c.revPerClient;
     const projBudget=(budget!=null)? budget/days*state.daysMonth : projCloses*c.leadsPerClient*state.costPerLead;
-    const projVar=projBudget + projCloses*c.commCost;
+    const projVar=projBudget + projCloses*(c.commCost + c.onbCommCost + c.procCost + c.onbHourlyCost);
     projOperating=projRev - projVar - state.fixedCosts;
   }
   // מול היעד
@@ -777,7 +821,7 @@ function refreshActual(){
     </table>
     <div class="split" style="margin-top:14px">
       <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:15px">
-        <div class="hint">רווח תפעולי עד כה (מהסגירות שכבר היו)</div>
+        <div class="hint">רווח תפעולי עד כה (סגירות שהיו פחות עלויות וחלק יחסי מההוצאות הקבועות)</div>
         <div style="font-family:'Rubik';font-size:22px;font-weight:800;color:${profitSoFar!=null&&profitSoFar>=0?'var(--accent)':(profitSoFar!=null?'var(--red)':'var(--txt-faint)')};direction:ltr;text-align:right;margin-top:4px">${profitSoFar!=null?money(profitSoFar)+' ₪':dash}</div>
       </div>
       <div style="background:var(--bg-2);border:1px solid ${projOperating!=null?(onTrackGoal?'rgba(61,220,151,.3)':'rgba(255,107,107,.3)'):'var(--line-soft)'};border-radius:12px;padding:16px">
@@ -937,7 +981,7 @@ function refreshSalesDerived(){
       <thead><tr><th>איש מכירות</th><th style="text-align:center">אחוז הסגירה שלו</th><th style="text-align:center">כמה לקוחות צריך לסגור בחודש</th><th style="text-align:center">כמה שיחות צריך לבצע בחודש</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table>
-    ${anyOver? `<div class="notice warn" style="margin-top:12px;margin-bottom:0">${svg('info')}<div><b>אזהרת קיבולת:</b> מישהו צריך יותר שיחות ממה שאפשר פיזית (מקסימום ${fmt(capacity)} בחודש לאיש). היעד שלו לא ריאלי באחוז הסגירה הנוכחי — צריך להעלות לו את אחוז הסגירה, או להוסיף איש מכירות שיחלוק את העומס.</div></div>`
+    ${anyOver? `<div class="notice warn" style="margin-top:12px;margin-bottom:0">${svg('info')}<div><b>אזהרת קיבולת:</b> מישהו צריך יותר שיחות ממה שאפשר פיזית (מקסימום ${fmt(capacity)} בחודש לאיש). היעד של החברה שמתחלק עליו לא ריאלי באחוז הסגירה הנוכחי — צריך להעלות לו את אחוז הסגירה, או להוסיף איש מכירות שיחלוק את העומס.</div></div>`
       : `<div class="hint" style="margin-top:10px">✓ כל אחד בתוך הקיבולת הפיזית (מקסימום ${fmt(capacity)} שיחות בחודש לאיש).</div>`}`);
 
   // סיכום אישי מול חברה
@@ -1310,27 +1354,115 @@ function renderSettings(){
       ${settingRow('workHoursDay',{label:'שעות מכירה ביום',sub:'לקיבולת שיחות',affix:'שע׳',icon:'clock',color:'blue'})}
     </tbody></table>
   </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>${T('history','נתונים אמיתיים מ-3 חודשים אחרונים')} ${help('history')}</h3><span class="tag amber">היסטוריה</span></div>
+    <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px">הזן נתונים בפועל מחודשים קודמים. המערכת תחשב ממוצעים ותציג אותם ליד נתוני הבסיס למעלה — ככה תראה בעיניים אם המספרים שאתה משתמש בהם תואמים למציאות.</p>
+    <div id="historyTable"></div>
+  </div>
   <div class="card"><div class="card-h"><h3>פעולות</h3></div>
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="exportConfig()">ייצוא קובץ גיבוי</button>
       <label class="btn btn-ghost" style="cursor:pointer">ייבוא קובץ גיבוי<input type="file" accept=".json" onchange="importConfig(event)" style="display:none"></label>
       <button class="btn btn-danger" onclick="resetAll()">איפוס לברירת מחדל</button>
     </div></div>`;
+  renderHistoryTable();
+}
+
+function renderHistoryTable(){
+  const box=document.getElementById('historyTable'); if(!box) return;
+  if(!state.history) state.history=[];
+  const rows=state.history.map((h,i)=>`
+    <tr>
+      <td><input class="lbl-edit" style="font-weight:600;font-size:13.5px" value="${(h.label||'חודש').replace(/"/g,'&quot;')}" oninput="updateHistory(${i},'label',this.value)"></td>
+      <td><div class="field w-sm"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.budget}" oninput="updateHistory(${i},'budget',this.value)"></div></td>
+      <td><div class="field w-sm"><input type="number" placeholder="—" value="${h.leads}" oninput="updateHistory(${i},'leads',this.value)"></div></td>
+      <td><div class="field w-sm"><input type="number" placeholder="—" value="${h.closes}" oninput="updateHistory(${i},'closes',this.value)"></div></td>
+      <td><div class="field w-sm"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.setupRev||''}" oninput="updateHistory(${i},'setupRev',this.value)"></div></td>
+      <td><div class="field w-sm"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.retainerRev||''}" oninput="updateHistory(${i},'retainerRev',this.value)"></div></td>
+      <td style="font-size:11.5px;color:var(--txt-faint);direction:ltr;text-align:right">${histRowSummary(h)}</td>
+    </tr>`).join('');
+  box.innerHTML=`
+    <div style="overflow-x:auto">
+    <table class="kpi-table" style="min-width:760px">
+      <thead><tr><th>חודש</th><th>תקציב שיווק</th><th>לידים</th><th>סגירות</th><th>סך הקמה</th><th>סך ריטיינרים</th><th>מחושב</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    ${(()=>{ const h=historyAverages(); if(!h.costPerLead&&!h.effConv&&!h.cac&&!h.setupAvg&&!h.retainerTotalAvg) return '';
+      return `<div style="margin-top:14px;padding:13px 16px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between">
+        <b style="font-size:13.5px;color:var(--txt-dim)">ממוצעים מהנתונים שהזנת:</b>
+        ${h.costPerLead!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">מחיר ליד:</span> <b style="font-family:'Rubik';color:var(--blue);direction:ltr">${fmt1(h.costPerLead)}₪</b></span>`:''}
+        ${h.effConv!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">המרה אפקטיבית:</span> <b style="font-family:'Rubik';color:var(--purple);direction:ltr">${fmt1(h.effConv)}%</b></span>`:''}
+        ${h.cac!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">עלות לקוח:</span> <b style="font-family:'Rubik';color:var(--red);direction:ltr">${money(h.cac)}₪</b></span>`:''}
+        ${h.setupAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">הקמה ממ׳:</span> <b style="font-family:'Rubik';color:var(--green);direction:ltr">${money(h.setupAvg)}₪</b></span>`:''}
+        ${h.retainerTotalAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">סך ריטיינרים ממ׳:</span> <b style="font-family:'Rubik';color:var(--amber);direction:ltr">${money(h.retainerTotalAvg)}₪</b></span>`:''}
+      </div>`; })()}`;
+  autoSizeInputs();
+}
+function histRowSummary(h){
+  const num=v=> v===''||v==null?null:parseFloat(v)||0;
+  const b=num(h.budget),l=num(h.leads),cl=num(h.closes),sr=num(h.setupRev),rr=num(h.retainerRev);
+  const parts=[];
+  if(b!=null&&l>0) parts.push('ליד '+fmt1(b/l)+'₪');
+  if(l>0&&cl!=null) parts.push('המרה '+fmt1(cl/l*100)+'%');
+  if(sr!=null&&cl>0) parts.push('הקמה ממ׳ '+fmt(sr/cl)+'₪');
+  if(rr!=null) parts.push('ריטיינרים '+fmt(rr)+'₪');
+  return parts.join(' · ')||'—';
+}
+function updateHistory(i,field,val){
+  if(!state.history[i]) return;
+  state.history[i][field] = field==='label' ? val : (val===''?'':(parseFloat(val)||0));
+  saveState();
+  // עדכן רק את הסיכום והממוצעים — בלי לרנדר מחדש את כל הטבלה (שומר פוקוס)
+  const box=document.getElementById('historyTable'); if(!box) return;
+  // עדכון תא הסיכום בשורה הספציפית
+  const summaryCells=box.querySelectorAll('tbody tr td:last-child');
+  if(summaryCells[i]) summaryCells[i].textContent=histRowSummary(state.history[i]);
+  // עדכון שורת הממוצעים
+  const avgBar=box.querySelector(':scope > div');
+  if(avgBar){
+    const h=historyAverages();
+    if(h.costPerLead||h.effConv||h.cac||h.setupAvg||h.retainerTotalAvg){
+      avgBar.outerHTML=`<div style="margin-top:14px;padding:13px 16px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between">
+        <b style="font-size:13.5px;color:var(--txt-dim)">ממוצעים מהנתונים שהזנת:</b>
+        ${h.costPerLead!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">מחיר ליד:</span> <b style="font-family:'Rubik';color:var(--blue);direction:ltr">${fmt1(h.costPerLead)}₪</b></span>`:''}
+        ${h.effConv!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">המרה אפקטיבית:</span> <b style="font-family:'Rubik';color:var(--purple);direction:ltr">${fmt1(h.effConv)}%</b></span>`:''}
+        ${h.cac!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">עלות לקוח:</span> <b style="font-family:'Rubik';color:var(--red);direction:ltr">${money(h.cac)}₪</b></span>`:''}
+        ${h.setupAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">הקמה ממ׳:</span> <b style="font-family:'Rubik';color:var(--green);direction:ltr">${money(h.setupAvg)}₪</b></span>`:''}
+        ${h.retainerTotalAvg!=null?`<span style="font-size:13px"><span style="color:var(--txt-faint)">סך ריטיינרים ממ׳:</span> <b style="font-family:'Rubik';color:var(--amber);direction:ltr">${money(h.retainerTotalAvg)}₪</b></span>`:''}
+      </div>`;
+    } else { avgBar.remove(); }
+  }
 }
 function settingRow(key,m){
   m=m||META[key];
+  const hist=historyAverages();
+  let histTag='';
+  if(key==='costPerLead' && hist.costPerLead!=null){
+    const diff=state[key]-hist.costPerLead;
+    histTag=`<div style="margin-top:4px;font-size:11.5px"><span style="color:var(--txt-faint)">ממוצע ${hist.costPerLeadN} חודשים אחרונים:</span> <b style="color:${Math.abs(diff)<0.5?'var(--accent)':'var(--amber)'}">${fmt1(hist.costPerLead)}₪</b> ${Math.abs(diff)>=0.5?`<span style="color:${diff>0?'var(--accent)':'var(--red)'}">(${diff>0?'+':''}${fmt1(diff)} מהממוצע)</span>`:''}</div>`;
+  }
+  if((key==='closeRate'||key==='answerRate') && hist.effConv!=null){
+    const planned=(state.answerRate/100)*(state.closeRate/100)*100;
+    const diff=planned-hist.effConv;
+    histTag=`<div style="margin-top:4px;font-size:11.5px"><span style="color:var(--txt-faint)">המרה אפקטיבית בפועל (${hist.effConvN} חודשים):</span> <b style="color:${Math.abs(diff)<0.5?'var(--accent)':'var(--amber)'}">${fmt1(hist.effConv)}%</b> ${Math.abs(diff)>=0.5?`<span style="color:${diff<0?'var(--accent)':'var(--red)'}">(תוכנן ${fmt1(planned)}%)</span>`:''}</div>`;
+  }
+  if(key==='setupFee' && hist.setupAvg!=null){
+    const diff=state[key]-hist.setupAvg;
+    histTag=`<div style="margin-top:4px;font-size:11.5px"><span style="color:var(--txt-faint)">ממוצע ${hist.setupAvgN} חודשים אחרונים:</span> <b style="color:${Math.abs(diff)<10?'var(--accent)':'var(--amber)'}">${money(hist.setupAvg)}₪</b> ${Math.abs(diff)>=10?`<span style="color:${diff<=0?'var(--accent)':'var(--red)'}">(${diff>0?'+':''}${money(diff)} מהממוצע)</span>`:''}</div>`;
+  }
   return `<tr>
     <td><div class="kpi-row-lbl"><div class="kpi-row-ico" style="--ic-bg:var(--${m.color}-soft);--ic:${COLORS[m.color]}">${svg(m.icon)}</div>
-      <div><b><input class="lbl-edit" value="${L(key)}" data-lblkey="${key}" onchange="setLabel(this)" onclick="this.select()"></b><small>${m.sub}</small></div></div></td>
+      <div><b><input class="lbl-edit" value="${L(key)}" data-lblkey="${key}" onchange="setLabel(this)" onclick="this.select()"></b><small>${m.sub}</small>${histTag}</div></div></td>
     <td><div class="editable-cell"><div class="field w-sm"><span class="affix">${m.affix}</span>
       <input type="number" value="${state[key]}" data-key="${key}" oninput="onSetting(this)"></div></div></td>
     <td style="color:var(--txt-faint);font-size:12.5px">${explainKey(key)}</td></tr>`;
 }
 function explainKey(key){return ({
   costPerLead:'תקציב שיווק = לידים × ערך זה', answerRate:'מכפיל את מספר הלידים הנדרש',
-  closeRate:'אחוז סגירה ממי שענה', setupFee:'בסיס לעמלה', retainer:'× חודשי שימור = הכנסה חוזרת',
-  avgMonths:'מגדיל LTV', salesCommPct:'עלות משתנה לעסקה', fixedCosts:'קובע נקודת איזון',
-  callMin:'כמה שיחות אפשר ביום', onboardMin:'זמן פגישה לכל לקוח', onboardCostHr:'עלות שעת אונבורדינג (ספיר)',
+  closeRate:'אחוז סגירה ממי שענה', setupFee:'בסיס לעמלת המכירה', retainer:'× חודשי שימור = הכנסה חוזרת',
+  avgMonths:'מגדיל LTV', salesCommPct:'עלות משתנה על כל עסקה', fixedCosts:'קובע נקודת איזון',
+  callMin:'כמה שיחות אפשר ביום', onboardMin:'זמן פגישה לכל לקוח', onboardCostHr:'עלות שעת אונבורדינג (אם רלוונטי)',
+  onboardCommPct:'נגזרת מסך הריטיינרים של הלקוח', processingFeePct:'נגזרת מכל ההכנסה (הקמה + ריטיינרים)',
 })[key]||'';}
 function onSetting(input){ state[input.dataset.key]=parseFloat(input.value)||0; saveState(); }
 
@@ -1369,6 +1501,7 @@ const HELP={
   twoconv:{t:'תכנון מול ביצוע — אחוז המרה',body:`<b>אחוז המרה ביעד</b> = מה שהגדרת בנתוני בסיס, הבסיס לכל התכנון.<br><br><b>אחוז המרה בפועל</b> = ממוצע אחוזי הסגירה שאנשי המכירות הזינו במסכים האישיים שלהם.<br><br>אם הביצוע נמוך מהתכנון — באותו תקציב שיווק תקבל פחות לקוחות, ולכן פחות רווח. כך רואים את הפער בין מה שתוכנן למה שקורה.`,f:'בפועל = אחוז מענה × ממוצע סגירה של הצוות'},
   capacity:{t:'קיבולת צוות',body:`כמה שיחות כל הצוות יכול להוציא בחודש יחד. מחושב לפי כמה שיחות איש אחד יכול לעשות (לפי אורך השיחה ושעות העבודה), כפול מספר אנשי המכירות.<br><br>זה מראה לך את התקרה — אם היעד דורש יותר שיחות מהקיבולת, צריך עוד אנשי מכירות או יותר שעות.`,f:'שיחות לחודש לאיש × מספר אנשי מכירות'},
   actual:{t:'השוואה לביצוע בפועל',body:`הזן מה שכבר קרה החודש — תקציב שיווק שיצא, לידים שנכנסו, סגירות שהיו, וכמה ימים עברו. המערכת מחשבת מזה את המחירים האמיתיים (מול ההנחות בנתוני בסיס), כמה צריך עוד כדי לעמוד ביעד, ומה הרווח הצפוי בקצב הנוכחי.<br><br>אפשר למלא רק חלק מהשדות — כל מדד שאי אפשר לחשב בלי הנתון שלו יוצג כ-"—".`,f:'מחיר ליד אמיתי = תקציב ÷ לידים · המרה אמיתית = סגירות ÷ לידים'},
+  history:{t:'נתונים היסטוריים',body:`הזן נתונים בפועל מ-3 חודשים אחרונים. המערכת מחשבת ממוצעים של מחיר הליד, אחוז ההמרה ועלות הלקוח, ומציגה אותם ליד נתוני הבסיס שלמעלה.<br><br>הרעיון: לראות בעיניים אם המספרים שאתה משתמש בהם (בנתוני בסיס) תואמים למה שקורה באמת. אם יש פער גדול — אולי כדאי לעדכן את ההנחות.`,f:'ממוצע = סכום החודשים ÷ מספר חודשים עם נתונים'},
   weighted:{t:'חלוקה לפי ביצועים — איך זה עובד',body:`יעד החברה (מספר הלקוחות) מתחלק בין אנשי המכירות <b>לפי אחוז הסגירה</b> של כל אחד. מחברים את כל אחוזי הסגירה, וכל אחד מקבל את היחס שלו מתוך הסכום.<br><br>דוגמה: דני 25% ומאיה 15%. סכום = 40. דני מקבל 25/40 = 62% מהיעד, מאיה 15/40 = 38%.<br><br><b>שיחות נדרשות</b> = כמה שיחות (שענו) כל אחד צריך כדי לסגור את היעד שלו, לפי אחוז הסגירה האישי. אם זה עובר את הקיבולת המקסימלית — מופיעה אזהרה, כי היעד לא ריאלי.`,f:'חלק = (אחוז סגירה שלך ÷ סך הצוות) × יעד · שיחות = לקוחות ÷ אחוז סגירה'},
 };
 function help(key){return `<span class="help" onclick="openHelp('${key}')">?</span>`;}
