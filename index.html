@@ -1341,20 +1341,28 @@ function updateProfitMoves(){
   // כל מהלך מסומן גם אם הוא מגדיל עומס שיחות (capImpact=true) → ייבדק בקיבולת
   const moves = [
     {name:'תוסיף לידים', unit:'10 לידים בחודש', effect: roi_lead*10, color:'blue', icon:'lead', capImpact:'leads',
+      explain:'כל 10 לידים נוספים → נהפכים בחלקם ללקוחות לפי אחוז ההמרה, פחות עלות הלידים עצמם',
       formula:`10 לידים × ${fmt1(c.effConv*100)}% המרה × ${money(c.grossPerClient)}₪ רווח ללקוח − 10 × ${s.costPerLead}₪ עלות`},
-    {name:'תעלה אחוז סגירה', unit:'+1 נקודה', effect: roi_closePerPP, color:'green', icon:'conv', capImpact:'close',
+    {name:'תעלה אחוז סגירה', unit:'אחוז', effect: roi_closePerPP, color:'green', icon:'conv', capImpact:'close',
+      explain:'אחוז סגירה משפיע רק על השיחות שענו להן (לכן אחוז המענה בחישוב). כל +1% = יותר לקוחות מאותם לידים',
       formula:`${fmt(currentLeads)} לידים × ${s.answerRate}% מענה × 1% × ${money(c.grossPerClient)}₪`},
-    {name:'תעלה אחוז מענה', unit:'+1 נקודה', effect: roi_answerPerPP, color:'purple', icon:'phone', capImpact:'answer',
+    {name:'תעלה אחוז מענה', unit:'אחוז', effect: roi_answerPerPP, color:'purple', icon:'phone', capImpact:'answer',
+      explain:'אחוז מענה מביא יותר שיחות, אבל רק חלק מהן ייסגרו (לכן אחוז הסגירה בחישוב)',
       formula:`${fmt(currentLeads)} לידים × 1% × ${s.closeRate}% סגירה × ${money(c.grossPerClient)}₪`},
-    {name:'תעלה מחיר הקמה', unit:'+10 ₪', effect: roi_setupPer10, color:'amber', icon:'wallet',
+    {name:'תעלה מחיר הקמה', unit:'10 ₪', effect: roi_setupPer10, color:'amber', icon:'wallet',
+      explain:'כל ₪ נוסף בהקמה הוא הכנסה ישירה לכל לקוח חדש, פחות עמלת המכירות והסליקה שגדלות יחד איתו',
       formula:`${fmt1(currentClients)} לקוחות × 10₪ × (1 − ${s.salesCommPct}% עמלה − ${s.processingFeePct}% סליקה)`},
-    {name:'תעלה ריטיינר חודשי', unit:'+10 ₪', effect: roi_retainerPer10, color:'green', icon:'repeat',
+    {name:'תעלה ריטיינר חודשי', unit:'10 ₪', effect: roi_retainerPer10, color:'green', icon:'repeat',
+      explain:'כל ₪ נוסף בריטיינר מתרבה במספר חודשי השימור של הלקוח, פחות עמלת אונבורדינג וסליקה',
       formula:`${fmt1(currentClients)} לקוחות × 10₪ × ${s.avgMonths} חודשים × (1 − ${s.onboardCommPct}% אונבורדינג − ${s.processingFeePct}% סליקה)`},
-    {name:'תאריך שימור', unit:'+1 חודש', effect: roi_monthPerUnit, color:'green', icon:'repeat',
+    {name:'תאריך שימור', unit:'חודש', effect: roi_monthPerUnit, color:'green', icon:'repeat',
+      explain:'כל חודש נוסף שלקוח נשאר = ריטיינר אחד נוסף שמתקבל ממנו (פחות עמלות שמחושבות אחוז)',
       formula:`${fmt1(currentClients)} לקוחות × ${money(s.retainer)}₪ ריטיינר × (1 − סליקה − אונבורדינג)`},
-    {name:'תוריד עמלת מכירות', unit:'−1 נקודה', effect: roi_commPerPP, color:'amber', icon:'percent',
+    {name:'תוריד עמלת מכירות', unit:'אחוז', effect: roi_commPerPP, color:'amber', icon:'percent',
+      explain:'הורדה של 1% בעמלה = חיסכון של 1% ממחיר ההקמה על כל לקוח חדש',
       formula:`${fmt1(currentClients)} לקוחות × ${money(s.setupFee)}₪ הקמה × 1%`},
-    {name:'תוריד מחיר ליד', unit:'−1 ₪', effect: roi_cplPer1, color:'red', icon:'target',
+    {name:'תוריד מחיר ליד', unit:'1 ₪', effect: roi_cplPer1, color:'red', icon:'target',
+      explain:'הורדה של ₪ אחד בעלות הליד = חיסכון של ₪ אחד על כל ליד שנכנס לאורך החודש',
       formula:`${fmt(currentLeads)} לידים × 1₪ חיסכון לליד`},
   ];
   moves.sort((a,b)=>b.effect-a.effect);
@@ -1372,8 +1380,9 @@ function updateProfitMoves(){
         </div>
         <div style="font-family:'Rubik';font-weight:800;font-size:18px;color:${m.effect>=0?'var(--accent)':'var(--red)'};direction:ltr;text-align:left;min-width:90px">${m.effect>=0?'+':''}${money(m.effect)}₪</div>
       </div>
-      <div style="margin-top:6px;margin-right:44px;font-size:11.5px;color:var(--txt-faint);line-height:1.6;direction:rtl">
-        <b style="color:var(--txt-dim)">חישוב:</b> ${m.formula}
+      <div style="margin-top:6px;margin-right:44px;line-height:1.6;direction:rtl">
+        <div style="font-size:12px;color:var(--txt-dim);margin-bottom:2px">${m.explain}</div>
+        <div style="font-size:11.5px;color:var(--txt-faint)"><b style="color:var(--txt-dim)">חישוב:</b> ${m.formula}</div>
       </div>
     </div>`).join('');
 
@@ -1388,82 +1397,128 @@ function updateProfitMoves(){
     gapEl.innerHTML = `<div class="notice" style="margin:0">${svg('info')}<div>היעד נמוך מהרווח הנוכחי. הסימולטור הזה מתמקד בלהעלות רווח — תזיז את הסליידר מעל הרווח הנוכחי (${money(currentProfit)}₪).</div></div>`;
     return;
   }
-  // לכל מהלך: כמה יחידות צריך + הערך החדש + בדיקת ריאליות מול קיבולת צוות
+  // לכל מהלך: כמה יחידות צריך + הערך החדש + בדיקת ריאליות
+  // לוגיקה: רק "תוסיף לידים" מגדיל את עומס השיחות → רק הוא נבדק מול קיבולת
+  // למהלכים שמשפרים אחוז (סגירה/מענה) — בדיקה אם המהלך לבד אפשרי, או שדורש גם תוספת לידים
   const targets=[];
-  // עזר: בודק אם הצוות יכול לעמוד בכמות לידים/שיחות החדשה
-  const checkCap = (newLeads, newAnswer, newClose) => {
-    const newCallsAnswered = newLeads * newAnswer;
-    return { ok: newCallsAnswered<=capacity, needed: newCallsAnswered, capacity };
-  };
-  // לידים: deltaLeads = profitGap / roi_lead
+  const callsCapped = currentLeads * c.answer; // השיחות שענו עליהן היום
+
+  // ====== תוסיף לידים ======
   if(roi_lead>0){
     const dLeads = profitGap/roi_lead;
     const newLeads = currentLeads+dLeads;
-    const cap = checkCap(newLeads, c.answer, c.close);
-    targets.push({name:'תוסיף לידים', from:Math.round(currentLeads), to:Math.round(newLeads), delta:'+'+fmt(dLeads), unit:'לידים בחודש', color:'blue', icon:'lead', cap});
+    const newCallsAnswered = newLeads * c.answer;
+    const over = newCallsAnswered > capacity;
+    targets.push({name:'תוסיף לידים', from:Math.round(currentLeads), to:Math.round(newLeads),
+      delta:'+'+fmt(dLeads), unit:'לידים בחודש', color:'blue', icon:'lead',
+      cap: over ? {ok:false, needed:newCallsAnswered, capacity} : null});
   }
-  // אחוז סגירה
+
+  // ====== תעלה אחוז סגירה ======
+  // בודק אם השיפור הנדרש גבוה מתקרה ריאלית (80%). אם כן — צריך גם תוספת לידים.
   if(roi_closePerPP>0){
+    const CAP_CLOSE = 80; // תקרה ריאלית לאחוז סגירה
     const dClose = profitGap/roi_closePerPP;
-    const newClose=s.closeRate+dClose;
-    if(newClose<=80){
-      const cap = checkCap(currentLeads, c.answer, newClose/100);
-      targets.push({name:'תעלה אחוז סגירה', from:fmt1(s.closeRate)+'%', to:fmt1(newClose)+'%', delta:'+'+fmt1(dClose)+' נקודות', unit:'אחוז סגירה', color:'green', icon:'conv', cap});
+    const newClose = s.closeRate + dClose;
+    if(newClose <= CAP_CLOSE){
+      // המהלך לבד מספיק, ללא דרישה לעוד לידים
+      targets.push({name:'תעלה אחוז סגירה', from:fmt1(s.closeRate)+'%', to:fmt1(newClose)+'%',
+        delta:'+'+fmt1(dClose)+' נקודות', unit:'אחוז סגירה', color:'green', icon:'conv'});
+    } else {
+      // לא ניתן להגיע ליעד רק בשיפור אחוז סגירה — צריך גם לידים נוספים
+      // נחשב: אם נעלה את אחוז הסגירה ל-80%, כמה לידים נוספים נצטרך?
+      const maxedClose = CAP_CLOSE/100;
+      const newEffMax = c.answer * maxedClose;
+      // ROI של ליד בהמרה החדשה
+      const roiLeadAtMax = newEffMax * c.grossPerClient - s.costPerLead;
+      // כמה רווח נשיג מהשיפור עד לתקרה?
+      const profitFromMaxClose = roi_closePerPP * (CAP_CLOSE - s.closeRate);
+      const remainingGap = profitGap - profitFromMaxClose;
+      const extraLeads = roiLeadAtMax>0 ? remainingGap/roiLeadAtMax : Infinity;
+      const newLeads = currentLeads + extraLeads;
+      const newCallsAnswered = newLeads * c.answer;
+      const over = newCallsAnswered > capacity;
+      targets.push({name:'תעלה אחוז סגירה', from:fmt1(s.closeRate)+'%', to:CAP_CLOSE+'% (תקרה)',
+        delta:'+'+fmt1(CAP_CLOSE-s.closeRate)+' נקודות (לתקרה)', unit:'אחוז סגירה', color:'green', icon:'conv',
+        needsExtraLeads: {amount: extraLeads, over, needed: newCallsAnswered, capacity}});
     }
   }
-  // אחוז מענה
+
+  // ====== תעלה אחוז מענה ======
   if(roi_answerPerPP>0){
+    const CAP_ANS = 100;
     const dAns = profitGap/roi_answerPerPP;
-    const newAns = s.answerRate+dAns;
-    if(newAns<=100){
-      const cap = checkCap(currentLeads, newAns/100, c.close);
-      targets.push({name:'תעלה אחוז מענה', from:fmt1(s.answerRate)+'%', to:fmt1(newAns)+'%', delta:'+'+fmt1(dAns)+' נקודות', unit:'אחוז מענה', color:'purple', icon:'phone', cap});
+    const newAns = s.answerRate + dAns;
+    if(newAns <= CAP_ANS){
+      targets.push({name:'תעלה אחוז מענה', from:fmt1(s.answerRate)+'%', to:fmt1(newAns)+'%',
+        delta:'+'+fmt1(dAns)+' נקודות', unit:'אחוז מענה', color:'purple', icon:'phone'});
+    } else {
+      const maxedAns = 1.0;
+      const newEffMax = maxedAns * c.close;
+      const roiLeadAtMax = newEffMax * c.grossPerClient - s.costPerLead;
+      const profitFromMaxAns = roi_answerPerPP * (CAP_ANS - s.answerRate);
+      const remainingGap = profitGap - profitFromMaxAns;
+      const extraLeads = roiLeadAtMax>0 ? remainingGap/roiLeadAtMax : Infinity;
+      const newLeads = currentLeads + extraLeads;
+      const newCallsAnswered = newLeads * maxedAns; // עם 100% מענה
+      const over = newCallsAnswered > capacity;
+      targets.push({name:'תעלה אחוז מענה', from:fmt1(s.answerRate)+'%', to:'100% (תקרה)',
+        delta:'+'+fmt1(CAP_ANS-s.answerRate)+' נקודות (לתקרה)', unit:'אחוז מענה', color:'purple', icon:'phone',
+        needsExtraLeads: {amount: extraLeads, over, needed: newCallsAnswered, capacity}});
     }
   }
-  // מחיר הקמה: dSetup = profitGap / (clients * (1-comm-proc))
+
+  // ====== מחיר הקמה ======
   const setupSlope = currentClients*(1-c.commPct-c.procPct);
   if(setupSlope>0){
     const dSetup=profitGap/setupSlope;
     targets.push({name:'תעלה מחיר הקמה', from:money(s.setupFee)+'₪', to:money(s.setupFee+dSetup)+'₪', delta:'+'+money(dSetup)+'₪', unit:'מחיר הקמה', color:'amber', icon:'wallet'});
   }
-  // ריטיינר חודשי: dRetainer = profitGap / (clients * avgMonths * (1-onbComm-proc))
+  // ====== ריטיינר חודשי ======
   const retainerSlope = currentClients*s.avgMonths*(1-c.onbCommPct-c.procPct);
   if(retainerSlope>0){
     const dRet=profitGap/retainerSlope;
     targets.push({name:'תעלה ריטיינר חודשי', from:money(s.retainer)+'₪', to:money(s.retainer+dRet)+'₪', delta:'+'+money(dRet)+'₪', unit:'ריטיינר חודשי', color:'green', icon:'repeat'});
   }
-  // חודשי שימור: dMonths = profitGap / (clients * retainer * (1-proc-onbComm))
+  // ====== חודשי שימור ======
   const monthSlope = currentClients*s.retainer*(1-c.procPct-c.onbCommPct);
   if(monthSlope>0){
     const dMonths=profitGap/monthSlope;
     targets.push({name:'תאריך שימור', from:fmt1(s.avgMonths)+' חוד׳', to:fmt1(s.avgMonths+dMonths)+' חוד׳', delta:'+'+fmt1(dMonths)+' חודשים', unit:'חודשי שימור', color:'green', icon:'repeat'});
   }
-  // עמלת מכירות: dComm = -profitGap / (clients * setupFee * 0.01)
+  // ====== עמלת מכירות ======
   const commSlope = currentClients*s.setupFee*0.01;
   if(commSlope>0 && s.salesCommPct>0){
     const dComm=profitGap/commSlope;
     if(dComm<s.salesCommPct) targets.push({name:'תוריד עמלת מכירות', from:fmt1(s.salesCommPct)+'%', to:fmt1(s.salesCommPct-dComm)+'%', delta:'−'+fmt1(dComm)+' נקודות', unit:'עמלת מכירות', color:'amber', icon:'percent'});
   }
-  // מחיר ליד: dCpl = -profitGap/currentLeads (הורדה)
+  // ====== מחיר ליד ======
   if(currentLeads>0){
     const dCpl=profitGap/currentLeads;
     if(dCpl<s.costPerLead) targets.push({name:'תוריד מחיר ליד', from:fmt1(s.costPerLead)+'₪', to:fmt1(s.costPerLead-dCpl)+'₪', delta:'−'+fmt1(dCpl)+'₪', unit:'מחיר ליד', color:'red', icon:'target'});
   }
-  targets.sort((a,b)=>0); // השאר במצב טבעי
+  targets.sort((a,b)=>0);
   gapEl.innerHTML = `
     <p class="hint" style="margin-bottom:14px">כל אופציה לבד תספיק להגיע ליעד של ${money(goal)}₪. בפועל, אפשר גם לשלב כמה מהלכים יחד בפחות מאמץ.</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
     ${targets.map(t=>{
       const overCap = t.cap && !t.cap.ok;
-      return `<div style="background:var(--bg-2);border:1px solid ${overCap?'rgba(255,107,107,.4)':'var(--line-soft)'};border-radius:12px;padding:14px;${overCap?'opacity:0.85':''}">
+      const needsExtra = t.needsExtraLeads;
+      const extraOver = needsExtra && needsExtra.over;
+      const hasIssue = overCap || extraOver;
+      return `<div style="background:var(--bg-2);border:1px solid ${hasIssue?'rgba(255,107,107,.4)':(needsExtra?'rgba(255,179,77,.4)':'var(--line-soft)')};border-radius:12px;padding:14px;${hasIssue?'opacity:0.9':''}">
         <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
           <div style="background:var(--${t.color}-soft);color:${COLORS[t.color]};width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex-shrink:0">${svg(t.icon)}</div>
           <b style="font-size:13.5px">${t.name}</b>
           ${overCap?'<span class="tag red" style="font-size:10.5px;margin-right:auto">לא ריאלי</span>':''}
+          ${needsExtra && !extraOver?'<span class="tag amber" style="font-size:10.5px;margin-right:auto">דורש גם לידים</span>':''}
+          ${extraOver?'<span class="tag red" style="font-size:10.5px;margin-right:auto">לא ריאלי לבד</span>':''}
         </div>
-        <div style="font-family:'Rubik';font-weight:800;font-size:20px;color:${overCap?'var(--txt-dim)':'var(--accent)'};direction:ltr;text-align:right">${t.delta}</div>
+        <div style="font-family:'Rubik';font-weight:800;font-size:20px;color:${hasIssue?'var(--txt-dim)':'var(--accent)'};direction:ltr;text-align:right">${t.delta}</div>
         <div class="hint" style="margin-top:4px">מ-${t.from} ל-${t.to}</div>
         ${overCap?`<div style="margin-top:8px;padding:8px 10px;background:var(--red-soft);border-radius:8px;font-size:11.5px;color:var(--red);line-height:1.5">⚠ דורש ${fmt(t.cap.needed)} שיחות לחודש אבל הצוות יכול ${fmt(t.cap.capacity)}. צריך להגדיל צוות או שעות עבודה.</div>`:''}
+        ${needsExtra && !extraOver?`<div style="margin-top:8px;padding:8px 10px;background:var(--amber-soft);border-radius:8px;font-size:11.5px;color:var(--amber);line-height:1.5">המהלך לבד מגיע לתקרה ועדיין לא מספיק. צריך גם להוסיף <b>${fmt(needsExtra.amount)} לידים נוספים</b> כדי להשלים.</div>`:''}
+        ${extraOver?`<div style="margin-top:8px;padding:8px 10px;background:var(--red-soft);border-radius:8px;font-size:11.5px;color:var(--red);line-height:1.5">⚠ גם בתקרה צריך עוד ${fmt(needsExtra.amount)} לידים → ${fmt(needsExtra.needed)} שיחות, מעבר לקיבולת ${fmt(needsExtra.capacity)}. צריך גם להגדיל צוות.</div>`:''}
       </div>`;
     }).join('')}
     </div>`;
