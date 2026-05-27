@@ -1297,6 +1297,29 @@ function simPlans(){
   }
   return {cNow,cSim,planNow,planSim,subText};
 }
+/* פתרונות אפשריים לבעיית קיבולת — מציג 3 אופציות */
+function renderSolutions(sol){
+  if(!sol) return '';
+  const items=[];
+  if(sol.callMin.feasible){
+    items.push({icon:'clock',label:'לקצר אורך שיחה',from:fmt(sol.callMin.current)+' דק׳',to:fmt1(sol.callMin.value)+' דק׳'});
+  }
+  if(sol.workHours.feasible){
+    items.push({icon:'clock',label:'להוסיף שעות עבודה ביום',from:fmt1(sol.workHours.current)+' שע׳',to:fmt1(sol.workHours.value)+' שע׳'});
+  }
+  if(sol.teamSize.delta>0){
+    items.push({icon:'users',label:'להוסיף נציגים',from:sol.teamSize.current+' נציגים',to:sol.teamSize.value+' נציגים (+'+sol.teamSize.delta+')'});
+  }
+  if(!items.length) return '';
+  return `<div style="margin-top:10px;padding:10px 12px;background:var(--bg-2);border-radius:8px;border:1px solid var(--line-soft)">
+    <div style="font-size:11.5px;color:var(--txt-dim);font-weight:600;margin-bottom:8px">פתרונות אפשריים (בחר אחד):</div>
+    ${items.map(it=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;font-size:12px">
+      <span style="color:var(--txt-dim)">${it.label}</span>
+      <span style="font-family:'Rubik';font-weight:600;color:var(--accent);direction:ltr">${it.from} → ${it.to}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
 /* מצב יעד-רווח: חישוב מה המהלכים שיביאו ליעד, ודירוג ROI */
 function updateProfitMoves(){
   const s=state;                                          // נקודת מוצא = מצב נוכחי
@@ -1336,6 +1359,22 @@ function updateProfitMoves(){
   // קיבולת צוות לבדיקת ריאליות
   const capacity = c.callsPerMonthPerRep * Math.max(parseInt(s.teamSize)||1,1);
   const callsNow = currentLeads * c.answer; // שיחות שענו במצב הנוכחי
+  const teamSize = Math.max(parseInt(s.teamSize)||1,1);
+
+  // פתרונות לבעיית קיבולת - מקבל כמה שיחות צריך, מחזיר 3 אופציות
+  const capacitySolutions = (callsNeeded) => {
+    // אופציה 1: לקצר אורך שיחה
+    const newCallMin = (s.workHoursDay*60 * s.workDaysMonth * teamSize) / callsNeeded;
+    // אופציה 2: יותר שעות עבודה ביום
+    const newWorkHours = (callsNeeded * s.callMin) / (60 * s.workDaysMonth * teamSize);
+    // אופציה 3: יותר נציגים
+    const newTeam = Math.ceil(callsNeeded / c.callsPerMonthPerRep);
+    return {
+      callMin: { feasible: newCallMin >= 10, value: newCallMin, current: s.callMin },
+      workHours: { feasible: newWorkHours <= 10, value: newWorkHours, current: s.workHoursDay },
+      teamSize: { value: newTeam, current: teamSize, delta: newTeam - teamSize },
+    };
+  };
 
   // נירמול ROI לפורמט אחיד "לכל יחידת שיפור מציאותית"
   // כל מהלך מסומן גם אם הוא מגדיל עומס שיחות (capImpact=true) → ייבדק בקיבולת
@@ -1411,7 +1450,7 @@ function updateProfitMoves(){
     const over = newCallsAnswered > capacity;
     targets.push({name:'תוסיף לידים', from:Math.round(currentLeads), to:Math.round(newLeads),
       delta:'+'+fmt(dLeads), unit:'לידים בחודש', color:'blue', icon:'lead',
-      cap: over ? {ok:false, needed:newCallsAnswered, capacity} : null});
+      cap: over ? {ok:false, needed:newCallsAnswered, capacity, solutions: capacitySolutions(newCallsAnswered)} : null});
   }
 
   // ====== תעלה אחוז סגירה ======
@@ -1440,7 +1479,7 @@ function updateProfitMoves(){
       const over = newCallsAnswered > capacity;
       targets.push({name:'תעלה אחוז סגירה', from:fmt1(s.closeRate)+'%', to:CAP_CLOSE+'% (תקרה)',
         delta:'+'+fmt1(CAP_CLOSE-s.closeRate)+' נקודות (לתקרה)', unit:'אחוז סגירה', color:'green', icon:'conv',
-        needsExtraLeads: {amount: extraLeads, over, needed: newCallsAnswered, capacity}});
+        needsExtraLeads: {amount: extraLeads, over, needed: newCallsAnswered, capacity, solutions: over ? capacitySolutions(newCallsAnswered) : null}});
     }
   }
 
@@ -1464,7 +1503,7 @@ function updateProfitMoves(){
       const over = newCallsAnswered > capacity;
       targets.push({name:'תעלה אחוז מענה', from:fmt1(s.answerRate)+'%', to:'100% (תקרה)',
         delta:'+'+fmt1(CAP_ANS-s.answerRate)+' נקודות (לתקרה)', unit:'אחוז מענה', color:'purple', icon:'phone',
-        needsExtraLeads: {amount: extraLeads, over, needed: newCallsAnswered, capacity}});
+        needsExtraLeads: {amount: extraLeads, over, needed: newCallsAnswered, capacity, solutions: over ? capacitySolutions(newCallsAnswered) : null}});
     }
   }
 
@@ -1490,12 +1529,22 @@ function updateProfitMoves(){
   const commSlope = currentClients*s.setupFee*0.01;
   if(commSlope>0 && s.salesCommPct>0){
     const dComm=profitGap/commSlope;
-    if(dComm<s.salesCommPct) targets.push({name:'תוריד עמלת מכירות', from:fmt1(s.salesCommPct)+'%', to:fmt1(s.salesCommPct-dComm)+'%', delta:'−'+fmt1(dComm)+' נקודות', unit:'עמלת מכירות', color:'amber', icon:'percent'});
+    const wouldBeNeg = dComm >= s.salesCommPct;
+    targets.push({name:'תוריד עמלת מכירות', from:fmt1(s.salesCommPct)+'%',
+      to: wouldBeNeg ? '0% (תקרה)' : fmt1(s.salesCommPct-dComm)+'%',
+      delta: wouldBeNeg ? '−'+fmt1(s.salesCommPct)+' נקודות (לתקרה)' : '−'+fmt1(dComm)+' נקודות',
+      unit:'עמלת מכירות', color:'amber', icon:'percent',
+      infeasibleAlone: wouldBeNeg ? 'אי אפשר להוריד את העמלה מתחת ל-0%. גם בביטול מלא של העמלה לא תגיע ליעד לבד — צריך לשלב מהלך נוסף.' : null});
   }
   // ====== מחיר ליד ======
   if(currentLeads>0){
     const dCpl=profitGap/currentLeads;
-    if(dCpl<s.costPerLead) targets.push({name:'תוריד מחיר ליד', from:fmt1(s.costPerLead)+'₪', to:fmt1(s.costPerLead-dCpl)+'₪', delta:'−'+fmt1(dCpl)+'₪', unit:'מחיר ליד', color:'red', icon:'target'});
+    const wouldBeNeg = dCpl >= s.costPerLead;
+    targets.push({name:'תוריד מחיר ליד', from:fmt1(s.costPerLead)+'₪',
+      to: wouldBeNeg ? '0₪ (תקרה)' : fmt1(s.costPerLead-dCpl)+'₪',
+      delta: wouldBeNeg ? '−'+fmt1(s.costPerLead)+'₪ (לתקרה)' : '−'+fmt1(dCpl)+'₪',
+      unit:'מחיר ליד', color:'red', icon:'target',
+      infeasibleAlone: wouldBeNeg ? 'אי אפשר שמחיר ליד יהיה שלילי. גם בלידים בחינם לא תגיע ליעד לבד — צריך לשלב מהלך נוסף.' : null});
   }
   targets.sort((a,b)=>0);
   gapEl.innerHTML = `
@@ -1505,7 +1554,8 @@ function updateProfitMoves(){
       const overCap = t.cap && !t.cap.ok;
       const needsExtra = t.needsExtraLeads;
       const extraOver = needsExtra && needsExtra.over;
-      const hasIssue = overCap || extraOver;
+      const infeasible = t.infeasibleAlone;
+      const hasIssue = overCap || extraOver || infeasible;
       return `<div style="background:var(--bg-2);border:1px solid ${hasIssue?'rgba(255,107,107,.4)':(needsExtra?'rgba(255,179,77,.4)':'var(--line-soft)')};border-radius:12px;padding:14px;${hasIssue?'opacity:0.9':''}">
         <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
           <div style="background:var(--${t.color}-soft);color:${COLORS[t.color]};width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex-shrink:0">${svg(t.icon)}</div>
@@ -1513,12 +1563,14 @@ function updateProfitMoves(){
           ${overCap?'<span class="tag red" style="font-size:10.5px;margin-right:auto">לא ריאלי</span>':''}
           ${needsExtra && !extraOver?'<span class="tag amber" style="font-size:10.5px;margin-right:auto">דורש גם לידים</span>':''}
           ${extraOver?'<span class="tag red" style="font-size:10.5px;margin-right:auto">לא ריאלי לבד</span>':''}
+          ${infeasible?'<span class="tag red" style="font-size:10.5px;margin-right:auto">לא ריאלי לבד</span>':''}
         </div>
         <div style="font-family:'Rubik';font-weight:800;font-size:20px;color:${hasIssue?'var(--txt-dim)':'var(--accent)'};direction:ltr;text-align:right">${t.delta}</div>
         <div class="hint" style="margin-top:4px">מ-${t.from} ל-${t.to}</div>
-        ${overCap?`<div style="margin-top:8px;padding:8px 10px;background:var(--red-soft);border-radius:8px;font-size:11.5px;color:var(--red);line-height:1.5">⚠ דורש ${fmt(t.cap.needed)} שיחות לחודש אבל הצוות יכול ${fmt(t.cap.capacity)}. צריך להגדיל צוות או שעות עבודה.</div>`:''}
+        ${overCap?`<div style="margin-top:8px;padding:8px 10px;background:var(--red-soft);border-radius:8px;font-size:11.5px;color:var(--red);line-height:1.5">⚠ דורש ${fmt(t.cap.needed)} שיחות לחודש אבל הצוות יכול ${fmt(t.cap.capacity)}.</div>${renderSolutions(t.cap.solutions)}`:''}
         ${needsExtra && !extraOver?`<div style="margin-top:8px;padding:8px 10px;background:var(--amber-soft);border-radius:8px;font-size:11.5px;color:var(--amber);line-height:1.5">המהלך לבד מגיע לתקרה ועדיין לא מספיק. צריך גם להוסיף <b>${fmt(needsExtra.amount)} לידים נוספים</b> כדי להשלים.</div>`:''}
-        ${extraOver?`<div style="margin-top:8px;padding:8px 10px;background:var(--red-soft);border-radius:8px;font-size:11.5px;color:var(--red);line-height:1.5">⚠ גם בתקרה צריך עוד ${fmt(needsExtra.amount)} לידים → ${fmt(needsExtra.needed)} שיחות, מעבר לקיבולת ${fmt(needsExtra.capacity)}. צריך גם להגדיל צוות.</div>`:''}
+        ${extraOver?`<div style="margin-top:8px;padding:8px 10px;background:var(--red-soft);border-radius:8px;font-size:11.5px;color:var(--red);line-height:1.5">⚠ גם בתקרה צריך עוד ${fmt(needsExtra.amount)} לידים → ${fmt(needsExtra.needed)} שיחות, מעבר לקיבולת ${fmt(needsExtra.capacity)}.</div>${renderSolutions(needsExtra.solutions)}`:''}
+        ${infeasible?`<div style="margin-top:8px;padding:8px 10px;background:var(--red-soft);border-radius:8px;font-size:11.5px;color:var(--red);line-height:1.5">⚠ ${infeasible}</div>`:''}
       </div>`;
     }).join('')}
     </div>`;
