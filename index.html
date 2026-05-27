@@ -1348,7 +1348,12 @@ function renderSettings(){
   <div class="card" style="margin-bottom:16px">
     <div class="card-h"><h3>${T('core_data','נתוני ליבה')}</h3></div>
     <table class="kpi-table"><thead><tr><th>מדד</th><th>ערך</th><th style="color:var(--amber)">ממוצע היסטורי</th><th>תפקיד בחישוב</th></tr></thead><tbody>
-      ${Object.keys(META).map(k=>settingRow(k)).join('')}
+      ${Object.keys(META).map(k=>{
+        const row=settingRow(k);
+        // אחרי שורת אחוז סגירה — הוסף שורת סיכום של אחוז המרה כולל
+        if(k==='closeRate') return row + convSummaryRow();
+        return row;
+      }).join('')}
       ${settingRow('daysMonth',{label:'ימים בחודש (לפירוק יומי)',sub:'לחלוקת יעדים ליום',affix:'ימים',icon:'calendar',color:'blue'})}
       ${settingRow('workDaysMonth',{label:'ימי עבודה בחודש',sub:'לקיבולת שיחות',affix:'ימים',icon:'calendar',color:'purple'})}
       ${settingRow('workHoursDay',{label:'שעות מכירה ביום',sub:'לקיבולת שיחות',affix:'שע׳',icon:'clock',color:'blue'})}
@@ -1436,6 +1441,30 @@ function updateHistory(i,field,val){
     avgBar.remove();
   }
 }
+function convSummaryRow(){
+  const planned=(state.answerRate/100)*(state.closeRate/100)*100;
+  const hist=historyAverages();
+  let histCell='<span style="color:var(--txt-faint)">—</span>';
+  if(hist.effConv!=null){
+    const diff=planned-hist.effConv;
+    const good=Math.abs(diff)<0.5;
+    const diffStr=Math.abs(diff)>=0.5
+      ? `<div style="font-size:11px;color:${good?'var(--accent)':'var(--amber)'};margin-top:2px">פער ${diff>0?'+':''}${fmt1(diff)}%</div>`
+      : '';
+    histCell=`<div style="font-family:'Rubik';font-weight:600;color:var(--amber);direction:ltr;font-size:13.5px">${fmt1(hist.effConv)}%</div>${diffStr}`;
+  }
+  return `<tr style="background:var(--bg-2)">
+    <td style="padding-right:48px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="color:var(--purple)">${svg('percent')}</span>
+        <div><b style="font-size:13.5px">אחוז המרה כולל</b><small style="color:var(--txt-faint);display:block">מענה × סגירה — מליד ללקוח</small></div>
+      </div>
+    </td>
+    <td><div style="font-family:'Rubik';font-weight:700;font-size:18px;color:var(--purple);direction:ltr;text-align:right;padding-right:14px">${fmt1(planned)}%</div></td>
+    <td style="text-align:center">${histCell}</td>
+    <td style="color:var(--txt-faint);font-size:12.5px">המרה בפועל מליד ללקוח</td>
+  </tr>`;
+}
 function settingRow(key,m){
   m=m||META[key];
   const hist=historyAverages();
@@ -1443,15 +1472,6 @@ function settingRow(key,m){
   let histVal='', histDiff=null;
   if(key==='costPerLead' && hist.costPerLead!=null){
     histVal=fmt1(hist.costPerLead)+'₪'; histDiff=state[key]-hist.costPerLead;
-  }
-  else if(key==='answerRate' && hist.effConv!=null){
-    // ממוצע אחוז מענה לבדו לא קיים — מציגים את המרה אפקטיבית בפועל
-    const planned=(state.answerRate/100)*(state.closeRate/100)*100;
-    histVal=fmt1(hist.effConv)+'% המרה אפקט׳'; histDiff=planned-hist.effConv;
-  }
-  else if(key==='closeRate' && hist.effConv!=null){
-    const planned=(state.answerRate/100)*(state.closeRate/100)*100;
-    histVal=fmt1(hist.effConv)+'% המרה אפקט׳'; histDiff=planned-hist.effConv;
   }
   else if(key==='setupFee' && hist.setupAvg!=null){
     histVal=money(hist.setupAvg)+'₪'; histDiff=state[key]-hist.setupAvg;
