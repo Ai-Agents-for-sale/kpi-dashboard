@@ -1194,6 +1194,7 @@ const LOCK_INFO={
   budget:{name:'תקציב שיווק / לידים',desc:'תקציב השיווק (מספר הלידים) נשאר קבוע. השאלה: מאותו תקציב, כמה לקוחות, מחזור ורווח אקבל? כאן שינוי באחוז מענה/סגירה כן משנה הכל — כמו בעולם האמיתי.',when:'מתי להשתמש: כשבודקים שיפור ביצועים בלי להוציא יותר כסף — כמה יותר לקוחות ורווח אפשר להוציא מאותו תקציב אם הצוות משתפר באחוז הסגירה או המענה.'},
   revenue:{name:'יעד מחזור',desc:'יעד המחזור נשאר קבוע. השאלה: כמה לקוחות, לידים ותקציב שיווק צריך כדי להגיע לאותו מחזור עם הפרמטרים החדשים, וכמה רווח יישאר?',when:'מתי להשתמש: כשיש יעד מחזור קבוע ורוצים לבדוק כמה "יקר" או "זול" להגיע אליו בתנאים שונים — כמה תקציב ולקוחות יידרשו, וכמה זה ישאיר ברווח.'},
   invest:{name:'מצב השקעה (תקציב חופשי)',desc:'כאן אתה גורר את תקציב השיווק בעצמך, ורואה כמה לידים, לקוחות, מחזור ורווח יוצאים ממנו. כולל בדיקה אם צוות המכירות בכלל יכול לטפל בכמות הלידים החדשה — ואם לא, מה צריך לעשות (יותר שעות או שיחה קצרה יותר).',when:'מתי להשתמש: כששוקלים כמה להשקיע בשיווק ורוצים לראות את התשואה — כמה לקוחות ורווח כל שקל שיווק מביא, והאם הצוות מסוגל לעמוד בעומס הלידים.'},
+  profitMoves:{name:'יעד רווח — איזה מהלך הכי משתלם?',desc:'אתה קובע יעד רווח. המערכת מחשבת לבד מה המהלכים האפשריים שיביאו אותך אליו — יותר לידים, אחוז המרה גבוה יותר, מחיר הקמה גבוה יותר, או חודשי שימור ארוכים יותר. כל מהלך לחוד, עם דירוג של מה הכי יעיל פר יחידת מאמץ.',when:'מתי להשתמש: כשרוצים לדעת בתכלס איזה מהלך הכי שווה לעשות עכשיו כדי להעלות את הרווח. זה הסימולטור הכי שימושי ליום-יום.'},
 };
 function renderScenarios(){
   if(!simState) simState=structuredClone(state);
@@ -1203,6 +1204,9 @@ function renderScenarios(){
     simState.mktBudget=Math.round(pn.marketing);
   }
   const isInvest = simLock==='invest';
+  const isProfit = simLock==='profitMoves';
+  // אתחול יעד הרווח לסימולציה (לפי היעד הנוכחי) אם זה המצב
+  if(isProfit && simState.simProfitGoal==null) simState.simProfitGoal=state.goalProfit;
   document.getElementById('content').innerHTML=`
   <div class="page-head"><h1>סימולטור מהלכים</h1>
     <p>שנה פרמטרים בלי לגעת בנתונים האמיתיים, ותראה מיד את ההשפעה. השינויים כאן זמניים בלבד.</p></div>
@@ -1216,6 +1220,21 @@ function renderScenarios(){
     <div class="notice" style="margin-bottom:0"><div style="display:flex;gap:11px;align-items:flex-start">${svg('info')}<div><b>נעול על: ${LOCK_INFO[simLock].name}.</b> ${LOCK_INFO[simLock].desc}<div style="margin-top:8px;color:var(--accent);font-weight:500">${LOCK_INFO[simLock].when}</div></div></div></div>
   </div>
 
+  ${isProfit ? `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-h"><h3>יעד הרווח שלך</h3><button class="btn btn-ghost btn-sm" onclick="resetSim()">איפוס</button></div>
+      ${slider('simProfitGoal','יעד רווח תפעולי חודשי',5000,200000,1000,'₪')}
+      <p class="hint" style="margin-top:8px">המערכת תחשב לבד את כל המהלכים האפשריים שיביאו אותך אליו, ותדרג מה הכי משתלם.</p>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-h"><h3>כמה צריך לשפר כדי להגיע ליעד?</h3><span class="sub">כל מהלך לחוד — אם הולכים רק עליו</span></div>
+      <div id="moveTargets"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>איזה מהלך הכי משתלם? (דירוג ROI)</h3><span class="sub">השפעה ברווח חודשי לכל יחידת שיפור</span></div>
+      <div id="moveRanking"></div>
+    </div>
+  ` : `
   <div class="split">
     <div class="card">
       <div class="card-h"><h3>הזז פרמטרים</h3><button class="btn btn-ghost btn-sm" onclick="resetSim()">איפוס</button></div>
@@ -1238,7 +1257,8 @@ function renderScenarios(){
       </div>
       <div class="card"><div class="card-h"><h3>עכשיו מול התרחיש</h3></div><div id="simCompare"></div></div>
     </div>
-  </div>`;
+  </div>
+  `}`;
   updateSim();
 }
 function setLock(k){ simLock=k; renderScenarios(); }
@@ -1277,7 +1297,180 @@ function simPlans(){
   }
   return {cNow,cSim,planNow,planSim,subText};
 }
+/* מצב יעד-רווח: חישוב מה המהלכים שיביאו ליעד, ודירוג ROI */
+function updateProfitMoves(){
+  const s=state;                                          // נקודת מוצא = מצב נוכחי
+  const c=compute(s);
+  const goal = simState.simProfitGoal || s.goalProfit;
+  // לקוחות נוכחיים (לפי יעד הרווח הנוכחי במציאות)
+  const currentPlan = planFromClients(clientsForProfit(s.goalProfit), s);
+  const currentClients = currentPlan.clients;
+  const currentLeads   = currentPlan.leads;
+  const currentProfit  = s.goalProfit;                    // הרווח הנוכחי שאתה מתכנן (כיעד)
+  // יעד הלקוחות אם לא משנים כלום אחר
+  const targetClients = c.grossPerClient>0 ? (goal + s.fixedCosts)/c.grossPerClient : Infinity;
+
+  // ========= ROI לכל פרמטר (השפעה מרגינלית של יחידה אחת) =========
+  // 1) +1 ליד בחודש: ליד נוסף = effConv לקוח נוסף × רווח גולמי ללקוח, פחות עלות הליד עצמו
+  const roi_lead = c.effConv * c.grossPerClient - s.costPerLead;
+  // ערוך לכל 10 לידים נוספים בחודש לשיווק יותר אטרקטיבי לעין
+  // 2) +1% באחוז סגירה: ↑close → ↑effConv → ↑clients מאותם לידים, פחות עמלות נוספות
+  // פירוט: dProfit/dClose = leads * dEffConv/dClose * grossPerClient (ופחות שינוי בעמלות סגירה = setupFee*commPct)
+  // dEffConv = answer * dClose. עליה ב-1% close → answer*0.01 effConv → leads*answer*0.01 לקוחות נוספים × grossPerClient
+  const roi_closePerPP = currentLeads * c.answer * 0.01 * c.grossPerClient;
+  // 3) +1% באחוז מענה: dProfit ≈ leads * dAnswer/dAns * close * grossPerClient = leads*0.01*close*grossPerClient
+  const roi_answerPerPP = currentLeads * 0.01 * c.close * c.grossPerClient;
+  // 4) +10 ₪ במחיר הקמה: dProfit ≈ clients * 10 * (1 - commPct - procPct)
+  // (כי כל ₪ נוסף בהקמה → +1 הכנסה, אבל +commPct בעמלת מכירה ו-procPct בסליקה)
+  const roi_setupPer10 = currentClients * 10 * (1 - c.commPct - c.procPct);
+  // 5) +1 חודש שימור: dProfit ≈ clients * retainer * (1 - procPct - onbCommPct)
+  // כי כל חודש נוסף = retainer הכנסה נוסף ללקוח, פחות סליקה ועמלת אונבורדינג שמחושבת מסך הריטיינרים
+  const roi_monthPerUnit = currentClients * s.retainer * (1 - c.procPct - c.onbCommPct);
+  // 6) הפחתת -1 ₪ במחיר ליד: dProfit ≈ +leads (חוסכים על כל ליד)
+  const roi_cplPer1 = currentLeads * 1;
+  // 7) +10 ₪ בריטיינר חודשי: כל לקוח משלם +10 × חודשי שימור, פחות עמלת אונבורדינג (% מהריטיינרים) ופחות סליקה
+  const roi_retainerPer10 = currentClients * 10 * s.avgMonths * (1 - c.onbCommPct - c.procPct);
+  // 8) -1% בעמלת מכירות: חוסכים setupFee*0.01 על כל לקוח
+  const roi_commPerPP = currentClients * s.setupFee * 0.01;
+
+  // קיבולת צוות לבדיקת ריאליות
+  const capacity = c.callsPerMonthPerRep * Math.max(parseInt(s.teamSize)||1,1);
+  const callsNow = currentLeads * c.answer; // שיחות שענו במצב הנוכחי
+
+  // נירמול ROI לפורמט אחיד "לכל יחידת שיפור מציאותית"
+  // כל מהלך מסומן גם אם הוא מגדיל עומס שיחות (capImpact=true) → ייבדק בקיבולת
+  const moves = [
+    {name:'תוסיף לידים', unit:'10 לידים בחודש', effect: roi_lead*10, color:'blue', icon:'lead', capImpact:'leads',
+      formula:`10 לידים × ${fmt1(c.effConv*100)}% המרה × ${money(c.grossPerClient)}₪ רווח ללקוח − 10 × ${s.costPerLead}₪ עלות`},
+    {name:'תעלה אחוז סגירה', unit:'+1 נקודה', effect: roi_closePerPP, color:'green', icon:'conv', capImpact:'close',
+      formula:`${fmt(currentLeads)} לידים × ${s.answerRate}% מענה × 1% × ${money(c.grossPerClient)}₪`},
+    {name:'תעלה אחוז מענה', unit:'+1 נקודה', effect: roi_answerPerPP, color:'purple', icon:'phone', capImpact:'answer',
+      formula:`${fmt(currentLeads)} לידים × 1% × ${s.closeRate}% סגירה × ${money(c.grossPerClient)}₪`},
+    {name:'תעלה מחיר הקמה', unit:'+10 ₪', effect: roi_setupPer10, color:'amber', icon:'wallet',
+      formula:`${fmt1(currentClients)} לקוחות × 10₪ × (1 − ${s.salesCommPct}% עמלה − ${s.processingFeePct}% סליקה)`},
+    {name:'תעלה ריטיינר חודשי', unit:'+10 ₪', effect: roi_retainerPer10, color:'green', icon:'repeat',
+      formula:`${fmt1(currentClients)} לקוחות × 10₪ × ${s.avgMonths} חודשים × (1 − ${s.onboardCommPct}% אונבורדינג − ${s.processingFeePct}% סליקה)`},
+    {name:'תאריך שימור', unit:'+1 חודש', effect: roi_monthPerUnit, color:'green', icon:'repeat',
+      formula:`${fmt1(currentClients)} לקוחות × ${money(s.retainer)}₪ ריטיינר × (1 − סליקה − אונבורדינג)`},
+    {name:'תוריד עמלת מכירות', unit:'−1 נקודה', effect: roi_commPerPP, color:'amber', icon:'percent',
+      formula:`${fmt1(currentClients)} לקוחות × ${money(s.setupFee)}₪ הקמה × 1%`},
+    {name:'תוריד מחיר ליד', unit:'−1 ₪', effect: roi_cplPer1, color:'red', icon:'target',
+      formula:`${fmt(currentLeads)} לידים × 1₪ חיסכון לליד`},
+  ];
+  moves.sort((a,b)=>b.effect-a.effect);
+  const maxAbs = Math.max(...moves.map(m=>Math.abs(m.effect)),1);
+  document.getElementById('moveRanking').innerHTML = moves.map((m,i)=>`
+    <div style="padding:12px 0;${i<moves.length-1?'border-bottom:1px solid var(--line-soft)':''}">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:var(--${m.color}-soft);color:${COLORS[m.color]};width:32px;height:32px;border-radius:8px;display:grid;place-items:center;flex-shrink:0">${svg(m.icon)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:14px">${m.name}</div>
+          <div style="font-size:12px;color:var(--txt-faint)">לכל ${m.unit}</div>
+        </div>
+        <div style="width:30%;min-width:100px">
+          <div style="height:8px;background:var(--bg-2);border-radius:99px;overflow:hidden"><div style="height:100%;background:${COLORS[m.color]};width:${Math.max(Math.abs(m.effect)/maxAbs*100,2)}%"></div></div>
+        </div>
+        <div style="font-family:'Rubik';font-weight:800;font-size:18px;color:${m.effect>=0?'var(--accent)':'var(--red)'};direction:ltr;text-align:left;min-width:90px">${m.effect>=0?'+':''}${money(m.effect)}₪</div>
+      </div>
+      <div style="margin-top:6px;margin-right:44px;font-size:11.5px;color:var(--txt-faint);line-height:1.6;direction:rtl">
+        <b style="color:var(--txt-dim)">חישוב:</b> ${m.formula}
+      </div>
+    </div>`).join('');
+
+  // ========= כמה צריך לשפר כדי להגיע ליעד (כל מהלך לחוד) =========
+  const profitGap = goal - currentProfit;
+  const gapEl = document.getElementById('moveTargets');
+  if(Math.abs(profitGap) < 1){
+    gapEl.innerHTML = `<div class="notice ok" style="margin:0">${svg('info')}<div>היעד זהה לרווח הנוכחי שלך. תזיז את הסליידר למעלה כדי לראות מה צריך כדי להעלות אותו.</div></div>`;
+    return;
+  }
+  if(profitGap < 0){
+    gapEl.innerHTML = `<div class="notice" style="margin:0">${svg('info')}<div>היעד נמוך מהרווח הנוכחי. הסימולטור הזה מתמקד בלהעלות רווח — תזיז את הסליידר מעל הרווח הנוכחי (${money(currentProfit)}₪).</div></div>`;
+    return;
+  }
+  // לכל מהלך: כמה יחידות צריך + הערך החדש + בדיקת ריאליות מול קיבולת צוות
+  const targets=[];
+  // עזר: בודק אם הצוות יכול לעמוד בכמות לידים/שיחות החדשה
+  const checkCap = (newLeads, newAnswer, newClose) => {
+    const newCallsAnswered = newLeads * newAnswer;
+    return { ok: newCallsAnswered<=capacity, needed: newCallsAnswered, capacity };
+  };
+  // לידים: deltaLeads = profitGap / roi_lead
+  if(roi_lead>0){
+    const dLeads = profitGap/roi_lead;
+    const newLeads = currentLeads+dLeads;
+    const cap = checkCap(newLeads, c.answer, c.close);
+    targets.push({name:'תוסיף לידים', from:Math.round(currentLeads), to:Math.round(newLeads), delta:'+'+fmt(dLeads), unit:'לידים בחודש', color:'blue', icon:'lead', cap});
+  }
+  // אחוז סגירה
+  if(roi_closePerPP>0){
+    const dClose = profitGap/roi_closePerPP;
+    const newClose=s.closeRate+dClose;
+    if(newClose<=80){
+      const cap = checkCap(currentLeads, c.answer, newClose/100);
+      targets.push({name:'תעלה אחוז סגירה', from:fmt1(s.closeRate)+'%', to:fmt1(newClose)+'%', delta:'+'+fmt1(dClose)+' נקודות', unit:'אחוז סגירה', color:'green', icon:'conv', cap});
+    }
+  }
+  // אחוז מענה
+  if(roi_answerPerPP>0){
+    const dAns = profitGap/roi_answerPerPP;
+    const newAns = s.answerRate+dAns;
+    if(newAns<=100){
+      const cap = checkCap(currentLeads, newAns/100, c.close);
+      targets.push({name:'תעלה אחוז מענה', from:fmt1(s.answerRate)+'%', to:fmt1(newAns)+'%', delta:'+'+fmt1(dAns)+' נקודות', unit:'אחוז מענה', color:'purple', icon:'phone', cap});
+    }
+  }
+  // מחיר הקמה: dSetup = profitGap / (clients * (1-comm-proc))
+  const setupSlope = currentClients*(1-c.commPct-c.procPct);
+  if(setupSlope>0){
+    const dSetup=profitGap/setupSlope;
+    targets.push({name:'תעלה מחיר הקמה', from:money(s.setupFee)+'₪', to:money(s.setupFee+dSetup)+'₪', delta:'+'+money(dSetup)+'₪', unit:'מחיר הקמה', color:'amber', icon:'wallet'});
+  }
+  // ריטיינר חודשי: dRetainer = profitGap / (clients * avgMonths * (1-onbComm-proc))
+  const retainerSlope = currentClients*s.avgMonths*(1-c.onbCommPct-c.procPct);
+  if(retainerSlope>0){
+    const dRet=profitGap/retainerSlope;
+    targets.push({name:'תעלה ריטיינר חודשי', from:money(s.retainer)+'₪', to:money(s.retainer+dRet)+'₪', delta:'+'+money(dRet)+'₪', unit:'ריטיינר חודשי', color:'green', icon:'repeat'});
+  }
+  // חודשי שימור: dMonths = profitGap / (clients * retainer * (1-proc-onbComm))
+  const monthSlope = currentClients*s.retainer*(1-c.procPct-c.onbCommPct);
+  if(monthSlope>0){
+    const dMonths=profitGap/monthSlope;
+    targets.push({name:'תאריך שימור', from:fmt1(s.avgMonths)+' חוד׳', to:fmt1(s.avgMonths+dMonths)+' חוד׳', delta:'+'+fmt1(dMonths)+' חודשים', unit:'חודשי שימור', color:'green', icon:'repeat'});
+  }
+  // עמלת מכירות: dComm = -profitGap / (clients * setupFee * 0.01)
+  const commSlope = currentClients*s.setupFee*0.01;
+  if(commSlope>0 && s.salesCommPct>0){
+    const dComm=profitGap/commSlope;
+    if(dComm<s.salesCommPct) targets.push({name:'תוריד עמלת מכירות', from:fmt1(s.salesCommPct)+'%', to:fmt1(s.salesCommPct-dComm)+'%', delta:'−'+fmt1(dComm)+' נקודות', unit:'עמלת מכירות', color:'amber', icon:'percent'});
+  }
+  // מחיר ליד: dCpl = -profitGap/currentLeads (הורדה)
+  if(currentLeads>0){
+    const dCpl=profitGap/currentLeads;
+    if(dCpl<s.costPerLead) targets.push({name:'תוריד מחיר ליד', from:fmt1(s.costPerLead)+'₪', to:fmt1(s.costPerLead-dCpl)+'₪', delta:'−'+fmt1(dCpl)+'₪', unit:'מחיר ליד', color:'red', icon:'target'});
+  }
+  targets.sort((a,b)=>0); // השאר במצב טבעי
+  gapEl.innerHTML = `
+    <p class="hint" style="margin-bottom:14px">כל אופציה לבד תספיק להגיע ליעד של ${money(goal)}₪. בפועל, אפשר גם לשלב כמה מהלכים יחד בפחות מאמץ.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">
+    ${targets.map(t=>{
+      const overCap = t.cap && !t.cap.ok;
+      return `<div style="background:var(--bg-2);border:1px solid ${overCap?'rgba(255,107,107,.4)':'var(--line-soft)'};border-radius:12px;padding:14px;${overCap?'opacity:0.85':''}">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
+          <div style="background:var(--${t.color}-soft);color:${COLORS[t.color]};width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex-shrink:0">${svg(t.icon)}</div>
+          <b style="font-size:13.5px">${t.name}</b>
+          ${overCap?'<span class="tag red" style="font-size:10.5px;margin-right:auto">לא ריאלי</span>':''}
+        </div>
+        <div style="font-family:'Rubik';font-weight:800;font-size:20px;color:${overCap?'var(--txt-dim)':'var(--accent)'};direction:ltr;text-align:right">${t.delta}</div>
+        <div class="hint" style="margin-top:4px">מ-${t.from} ל-${t.to}</div>
+        ${overCap?`<div style="margin-top:8px;padding:8px 10px;background:var(--red-soft);border-radius:8px;font-size:11.5px;color:var(--red);line-height:1.5">⚠ דורש ${fmt(t.cap.needed)} שיחות לחודש אבל הצוות יכול ${fmt(t.cap.capacity)}. צריך להגדיל צוות או שעות עבודה.</div>`:''}
+      </div>`;
+    }).join('')}
+    </div>`;
+}
+
 function updateSim(){
+  if(simLock==='profitMoves'){ updateProfitMoves(); return; }
   const {cNow,cSim,planNow,planSim,subText}=simPlans();
   const ss=document.getElementById('simSub'); if(ss) ss.textContent=subText;
   const dP=planSim.operating-planNow.operating;
@@ -1293,26 +1486,31 @@ function updateSim(){
       ${simMini('לקוחות',fmt1(planSim.clients),planSim.clients,planNow.clients,true)}
     </div>`;
 
-  // בדיקת קיבולת — רק במצב השקעה
+  // בדיקת קיבולת — בכל הסימולטורים
   const capEl=document.getElementById('simCapacity');
   if(capEl){
+    const teamSize=Math.max(parseInt(state.teamSize)||1,1);
+    const capacity=cSim.callsPerMonthPerRep*teamSize;   // מקסימום שיחות שענו שהצוות יכול לטפל בהן
+    const needed=planSim.calls;                          // שיחות שענו שצריך לטפל בהן
+    const over=needed>capacity;
+    const util=capacity>0?needed/capacity*100:0;
+    // הצעת פתרון תלוית מצב
+    let fixHint;
     if(simLock==='invest'){
-      const teamSize=Math.max(parseInt(state.teamSize)||1,1);
-      const capacity=cSim.callsPerMonthPerRep*teamSize;   // מקסימום שיחות שענו שהצוות יכול לטפל בהן (לפי הסליידרים)
-      const needed=planSim.calls;                          // שיחות שענו שצריך לטפל בהן
-      const over=needed>capacity;
-      const util=capacity>0?needed/capacity*100:0;
-      capEl.innerHTML=`
-        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line-soft)">
-          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:7px">
-            <span style="color:var(--txt-dim)">ניצולת צוות המכירות (${teamSize} אנשים)</span>
-            <b style="font-family:'Rubik';color:${over?'var(--red)':'var(--accent)'}">${fmt1(util)}%</b></div>
-          <div class="goal-prog"><div class="fill ${over?'warn':''}" style="width:${Math.min(util,100)}%"></div></div>
-          <div class="hint" style="margin-top:6px">צריך לטפל ב-${fmt(needed)} שיחות שענו · הצוות יכול ${fmt(capacity)} בחודש</div>
-          ${over? `<div class="notice warn" style="margin-top:12px;margin-bottom:0">${svg('info')}<div><b>הצוות לא יכול לעמוד בכמות הלידים הזו.</b> בתקציב הזה נכנסים יותר לידים ממה שאפשר לטפל בהם. כדי לעמוד בזה: הגדל שעות עבודה (כרגע ${fmt1(simState.workHoursDay)} שע׳), קצר את אורך השיחה (כרגע ${fmt(simState.callMin)} דק׳), או הוסף אנשי מכירות (במסך נתוני בסיס).</div></div>`
-            : `<div class="notice ok" style="margin-top:12px;margin-bottom:0">${svg('info')}<div>הצוות יכול לטפל בכל הלידים שהתקציב הזה מייצר.</div></div>`}
-        </div>`;
-    } else { capEl.innerHTML=''; }
+      fixHint = `הגדל שעות עבודה (כרגע ${fmt1(simState.workHoursDay)} שע׳), קצר את אורך השיחה (כרגע ${fmt(simState.callMin)} דק׳), או הוסף אנשי מכירות (במסך נתוני בסיס).`;
+    } else {
+      fixHint = `כדי לעמוד בזה: הוסף אנשי מכירות, הגדל שעות עבודה, או קצר את אורך השיחה (בנתוני בסיס). כרגע ${teamSize} ${teamSize>1?'נציגים':'נציג'} עם ${fmt1(state.workHoursDay)} שעות ביום ו-${fmt(state.callMin)} דק׳ לשיחה.`;
+    }
+    capEl.innerHTML=`
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line-soft)">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:7px">
+          <span style="color:var(--txt-dim)">ניצולת צוות המכירות (${teamSize} ${teamSize>1?'נציגים':'נציג'})</span>
+          <b style="font-family:'Rubik';color:${over?'var(--red)':'var(--accent)'}">${fmt1(util)}%</b></div>
+        <div class="goal-prog"><div class="fill ${over?'warn':''}" style="width:${Math.min(util,100)}%"></div></div>
+        <div class="hint" style="margin-top:6px">צריך לטפל ב-${fmt(needed)} שיחות שענו · הצוות יכול ${fmt(capacity)} בחודש</div>
+        ${over? `<div class="notice warn" style="margin-top:12px;margin-bottom:0">${svg('info')}<div><b>הצוות לא יכול לעמוד בעומס הזה.</b> התרחיש דורש יותר שיחות ממה שהצוות מסוגל לבצע. ${fixHint}</div></div>`
+          : `<div class="notice ok" style="margin-top:12px;margin-bottom:0">${svg('info')}<div>הצוות יכול לעמוד בעומס השיחות של התרחיש.</div></div>`}
+      </div>`;
   }
 
   document.getElementById('simCompare').innerHTML=`<table class="kpi-table">
