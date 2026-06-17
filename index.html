@@ -280,9 +280,14 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
       <div class="gb-field"><span>₪</span><input type="number" id="globalGoal" oninput="setGlobalGoal(this.value)"></div>
     </div>
     <div id="navLinks"></div>
-    <div class="nav-foot"><button onclick="exportConfig()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      גיבוי / ייצוא נתונים</button></div>
+    <div class="nav-foot">
+      <button onclick="fetchFromMonday(false)" style="margin-bottom:8px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        משוך נתונים ממאנדיי</button>
+      <button onclick="exportConfig()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        גיבוי / ייצוא נתונים</button>
+    </div>
   </aside>
   <div class="drawer-bg" onclick="closeDrawer()"></div>
   <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -312,6 +317,8 @@ const DEFAULTS = {
   mondayWebhookUrl:'https://aiagentsforsale.app.n8n.cloud/webhook/56a446ee-4a56-495c-aba0-7607204ef0c9',
   mondayAutoFetch:true,           // ריענון אוטומטי בכל פתיחה
   mondayLastFetch:null,           // תאריך הסנכרון האחרון
+  mondayMonthsBack:1,             // כמה חודשים לכלול בחישוב נתוני הבסיס (1=נוכחי בלבד)
+  mondayRaw:null,                 // הנתונים הגולמיים האחרונים שנמשכו (לחישוב מחדש בלי משיכה)
   history:[
     {label:'חודש −1', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
     {label:'חודש −2', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
@@ -1648,13 +1655,51 @@ function cmpRow(l,now,sim,good){return `<tr><td style="font-size:13.5px">${l}</t
 /* ============================================================
    מסך 5 — נתוני בסיס
 ============================================================ */
+/* מקור הנתון לתיוג בטבלת נתוני בסיס:
+   monday = נמשך ישירות ממאנדיי (לא קיים אצלנו כי הכל מחושב)
+   computed = מחושב באפ ע"ב נתוני מאנדיי
+   static = ברירת מחדל מהאפ (לא מהמאנדיי) */
+const KPI_SOURCE = {
+  costPerLead: {type:'computed', formula:'תקציב שיווק ÷ לידים כללית'},
+  answerRate:  {type:'computed', formula:'שיחות שבוצעו ÷ לידים כללית'},
+  closeRate:   {type:'computed', formula:'סגירות ÷ לידים כללית'},
+  setupFee:    {type:'computed', formula:'סך הקמות ÷ סך סגירות'},
+  retainer:    {type:'computed', formula:'סך ריטיינרים ÷ סך לקוחות פעילים'},
+  avgMonths:   {type:'static',   formula:null},
+  salesCommPct:{type:'monday',   formula:null},
+  fixedCosts:  {type:'monday',   formula:null},
+  callMin:     {type:'static',   formula:null},
+  onboardMin:  {type:'static',   formula:null},
+  onboardCostHr:{type:'static',  formula:null},
+  onboardCommPct:{type:'monday', formula:null},
+  processingFeePct:{type:'monday',formula:null},
+};
+function sourceBadge(key){
+  const s=KPI_SOURCE[key]; if(!s) return '';
+  if(s.type==='monday') return `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(77,159,255,.15);color:var(--blue);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600">🔗 מאנדיי</span>`;
+  if(s.type==='computed') return `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(167,139,250,.15);color:var(--purple);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600" title="${s.formula||''}">🧮 מחושב</span>`;
+  return `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(232,238,247,.08);color:var(--txt-faint);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600">⚙️ סטטי</span>`;
+}
+
 function renderSettings(){
   document.getElementById('content').innerHTML=`
   <div class="page-head"><h1>נתוני בסיס (KPI)</h1>
     <p>המקור היחיד לכל החישובים. שנה כל ערך או כל שם — וכל הדוחות יתעדכנו מיידית. נשמר אוטומטית.</p></div>
   <div class="notice">${svg('info')}<div>אפשר לערוך גם את <b>שם</b> כל מדד (לחיצה על השם) וגם את הערך. הכל נשמר בדפדפן. לגיבוי קבוע — ייצא קובץ.</div></div>
   <div class="card" style="margin-bottom:16px">
-    <div class="card-h"><h3>${T('core_data','נתוני ליבה')}</h3></div>
+    <div class="card-h"><h3>${T('core_data','נתוני ליבה')}</h3>${(()=>{
+      const totalMonths=state.mondayRaw?1+(state.mondayRaw.history||[]).length:0;
+      if(totalMonths<=1) return '';
+      const opts=[];
+      for(let i=1;i<=totalMonths;i++){
+        const lbl = i===1?'חודש נוכחי בלבד': i+' חודשים אחורה';
+        opts.push(`<option value="${i}" ${state.mondayMonthsBack===i?'selected':''}>${lbl}</option>`);
+      }
+      return `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--txt-dim)">
+        <span>חישוב לפי:</span>
+        <select onchange="changeMonthsBack(this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:8px;padding:5px 10px;font-size:12.5px;font-family:inherit">${opts.join('')}</select>
+      </div>`;
+    })()}</div>
     <table class="kpi-table"><thead><tr><th>מדד</th><th>ערך</th><th style="color:var(--amber)">ממוצע היסטורי</th><th>תפקיד בחישוב</th></tr></thead><tbody>
       ${Object.keys(META).map(k=>{
         const row=settingRow(k);
@@ -1672,19 +1717,13 @@ function renderSettings(){
     <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px">הזן נתונים בפועל מחודשים קודמים. המערכת תחשב ממוצעים ותציג אותם ליד נתוני הבסיס למעלה — ככה תראה בעיניים אם המספרים שאתה משתמש בהם תואמים למציאות.</p>
     <div id="historyTable"></div>
   </div>
-  <div class="card" style="margin-bottom:16px"><div class="card-h"><h3>סנכרון נתונים ממאנדיי</h3>${state.mondayLastFetch?`<span class="sub">עודכן ${new Date(state.mondayLastFetch).toLocaleString('he-IL')}</span>`:''}</div>
-    <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px">משוך את נתוני הבסיס וההיסטוריה אוטומטית ממאנדיי דרך n8n. הנתונים נשארים פתוחים לעריכה ידנית אחרי המשיכה.</p>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-      <div class="field" style="flex:1;min-width:280px"><span class="affix">URL</span>
-        <input type="url" placeholder="https://aiagentsforsale.app.n8n.cloud/webhook/..." value="${state.mondayWebhookUrl||''}" oninput="syncMondayUrl(this.value)">
-      </div>
-      <button class="btn btn-primary" onclick="fetchFromMonday(false)">משוך נתונים עכשיו</button>
-    </div>
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--txt-dim)">
+  ${state.mondayLastFetch?`<div style="margin-bottom:16px;padding:10px 14px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;font-size:12.5px">
+    <span style="color:var(--txt-dim)">🔗 הנתונים סונכרנו ממאנדיי לאחרונה: <b style="color:var(--txt)">${new Date(state.mondayLastFetch).toLocaleString('he-IL')}</b></span>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--txt-faint)">
       <input type="checkbox" ${state.mondayAutoFetch?'checked':''} onchange="toggleAutoFetch(this)">
-      <span>משוך נתונים אוטומטית בכל פתיחת האפליקציה</span>
+      <span>סנכרון אוטומטי בכל פתיחה</span>
     </label>
-  </div>
+  </div>`:''}
   <div class="card"><div class="card-h"><h3>פעולות</h3></div>
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="exportConfig()">ייצוא קובץ גיבוי</button>
@@ -1814,7 +1853,7 @@ function settingRow(key,m){
   }
   return `<tr>
     <td><div class="kpi-row-lbl"><div class="kpi-row-ico" style="--ic-bg:var(--${m.color}-soft);--ic:${COLORS[m.color]}">${svg(m.icon)}</div>
-      <div><b><input class="lbl-edit" value="${L(key)}" data-lblkey="${key}" onchange="setLabel(this)" onclick="this.select()"></b><small>${m.sub}</small></div></div></td>
+      <div><div style="display:flex;align-items:center;gap:6px"><b><input class="lbl-edit" value="${L(key)}" data-lblkey="${key}" onchange="setLabel(this)" onclick="this.select()"></b>${sourceBadge(key)}</div><small>${m.sub}</small>${KPI_SOURCE[key]&&KPI_SOURCE[key].formula?`<div style="font-size:10.5px;color:var(--txt-faint);margin-top:2px;direction:rtl">${KPI_SOURCE[key].formula}</div>`:''}</div></div></td>
     <td><div class="editable-cell"><div class="field w-sm"><span class="affix">${m.affix}</span>
       <input type="number" value="${state[key]}" data-key="${key}" oninput="onSetting(this)"></div></div></td>
     <td style="text-align:center">${histCell}</td>
@@ -1950,35 +1989,9 @@ async function fetchFromMonday(silent){
 }
 
 function applyMondayData(data){
-  // data = { current, history, staticDefaults, meta }
   if(!data || !data.current){ throw new Error('פלט מאנדיי לא תקין'); }
-  const cur=data.current;
-  // === נתוני בסיס ===
-  // מחזיק רק נתונים שיש להם ערך - לא דורס ב-null
-  const setIfNum=(key,val)=>{ if(val!=null && !isNaN(val)) state[key]=val; };
-  setIfNum('costPerLead', cur.costPerLead);
-  setIfNum('closeRate', cur.closeRate);
-  setIfNum('answerRate', cur.answerRate);
-  setIfNum('setupFee', cur.setupAvg);
-  setIfNum('retainer', cur.retainerAvg);
-  setIfNum('salesCommPct', cur.salesCommPct);
-  setIfNum('processingFeePct', cur.processingFeePct);
-  setIfNum('onboardCommPct', cur.onboardCommPct);
-  setIfNum('fixedCosts', cur.fixedCosts);
-  // === נתוני actual (החודש בפועל) ===
-  setIfNum('actBudget', cur.budget);
-  setIfNum('actLeads', cur.totalLeads);
-  setIfNum('actCloses', cur.closes);
-  // ימים שעברו - מהתאריך עד היום (אם החודש הנוכחי הוא כעת)
-  if(cur.date){
-    const today=new Date();
-    const monthStart=new Date(cur.date);
-    if(today.getFullYear()===monthStart.getFullYear() && today.getMonth()===monthStart.getMonth()){
-      state.actDays=Math.min(today.getDate(), state.daysMonth);
-    } else {
-      state.actDays=state.daysMonth; // חודש סגור
-    }
-  }
+  // שומרים את כל המידע הגולמי כדי לאפשר חישוב מחדש בלי משיכה
+  state.mondayRaw = data;
   // === היסטוריה ===
   if(Array.isArray(data.history)){
     state.history=data.history.map(m=>({
@@ -1986,10 +1999,81 @@ function applyMondayData(data){
       budget: m.budget||'',
       leads: m.totalLeads||'',
       closes: m.closes||'',
-      setupRev: m.setupAvg||'',     // מחיר הקמה ממוצע
-      retainerRev: m.retainerAvg||'', // מחיר ריטיינר ממוצע
+      setupRev: m.setupAvg||'',
+      retainerRev: m.retainerAvg||'',
     }));
   }
+  // === נתוני actual (החודש בפועל) ===
+  const cur=data.current;
+  const setIfNum=(key,val)=>{ if(val!=null && !isNaN(val)) state[key]=val; };
+  setIfNum('actBudget', cur.budget);
+  setIfNum('actLeads', cur.totalLeads);
+  setIfNum('actCloses', cur.closes);
+  if(cur.date){
+    const today=new Date();
+    const monthStart=new Date(cur.date);
+    if(today.getFullYear()===monthStart.getFullYear() && today.getMonth()===monthStart.getMonth()){
+      state.actDays=Math.min(today.getDate(), state.daysMonth);
+    } else {
+      state.actDays=state.daysMonth;
+    }
+  }
+  // === נתוני בסיס - מחושבים לפי מספר החודשים שנבחר ===
+  recomputeCoreFromMonday();
+}
+
+/* מחשב את נתוני הליבה לפי mondayMonthsBack — ממוצע משוקלל לפי נפח */
+function recomputeCoreFromMonday(){
+  const data=state.mondayRaw;
+  if(!data || !data.current) return;
+  // ניצור מערך של כל החודשים הרלוונטיים (האחרון = current, אחר כך history בסדר מהאחרון לראשון)
+  const allMonths=[data.current, ...(data.history||[])]; // אחרון לראשון
+  const months=allMonths.slice(0, Math.max(1, state.mondayMonthsBack||1));
+  // === ממוצעים משוקללים ===
+  // מחיר ליד = סך כל התקציבים / סך כל הלידים
+  let sumBudget=0, sumLeads=0, sumCloses=0, sumCalls=0;
+  let sumSetupRev=0, sumRetainerRev=0;
+  let sumActiveClients=0, monthsWithActive=0;
+  // לאחוזים סטטיים (עמלות, סליקה, אונבורדינג, הוצאות קבועות) - נשתמש בחודש האחרון שיש בו ערך
+  let salesCommPct=null, processingFeePct=null, onboardCommPct=null, fixedCosts=null;
+  for(const m of months){
+    if(m.budget!=null) sumBudget+=m.budget;
+    if(m.totalLeads!=null) sumLeads+=m.totalLeads;
+    if(m.closes!=null) sumCloses+=m.closes;
+    if(m.callsMade!=null) sumCalls+=m.callsMade;
+    if(m.setupTotal!=null) sumSetupRev+=m.setupTotal;
+    if(m.retainerTotal!=null) sumRetainerRev+=m.retainerTotal;
+    if(m.activeClients!=null){ sumActiveClients+=m.activeClients; monthsWithActive++; }
+    if(salesCommPct==null && m.salesCommPct!=null) salesCommPct=m.salesCommPct;
+    if(processingFeePct==null && m.processingFeePct!=null) processingFeePct=m.processingFeePct;
+    if(onboardCommPct==null && m.onboardCommPct!=null) onboardCommPct=m.onboardCommPct;
+    if(fixedCosts==null && m.fixedCosts!=null) fixedCosts=m.fixedCosts;
+  }
+  // === חישוב הנתונים המשוקללים ===
+  const setIfNum=(key,val)=>{ if(val!=null && !isNaN(val) && isFinite(val)) state[key]=val; };
+  // מחיר ליד = תקציב מצטבר / לידים מצטברים
+  if(sumLeads>0) setIfNum('costPerLead', sumBudget/sumLeads);
+  // אחוז סגירה = סגירות מצטברות / לידים מצטברים
+  if(sumLeads>0) setIfNum('closeRate', (sumCloses/sumLeads)*100);
+  // אחוז מענה = שיחות מצטברות / לידים מצטברים
+  if(sumLeads>0) setIfNum('answerRate', Math.min((sumCalls/sumLeads)*100, 100));
+  // מחיר הקמה ממוצע = סך הקמות / סך סגירות
+  if(sumCloses>0) setIfNum('setupFee', sumSetupRev/sumCloses);
+  // ריטיינר ממוצע = סך ריטיינרים / סך לקוחות פעילים (אם יש), אחרת לפי סגירות
+  if(monthsWithActive>0 && sumActiveClients>0) setIfNum('retainer', sumRetainerRev/sumActiveClients);
+  else if(sumCloses>0) setIfNum('retainer', sumRetainerRev/sumCloses);
+  // אחוזים סטטיים מהחודש האחרון (לרוב לא משתנים)
+  setIfNum('salesCommPct', salesCommPct);
+  setIfNum('processingFeePct', processingFeePct);
+  setIfNum('onboardCommPct', onboardCommPct);
+  setIfNum('fixedCosts', fixedCosts);
+}
+
+function changeMonthsBack(val){
+  state.mondayMonthsBack=Math.max(1, parseInt(val)||1);
+  recomputeCoreFromMonday();
+  saveState();
+  navigate(currentPage);
 }
 function syncMondayUrl(val){
   state.mondayWebhookUrl=(val||'').trim();
