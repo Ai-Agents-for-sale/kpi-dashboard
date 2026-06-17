@@ -309,6 +309,9 @@ const DEFAULTS = {
   onboardCommPct:10, processingFeePct:1,
   onboardCostHr:0, goalProfit:30000, daysMonth:30, workHoursDay:6, workDaysMonth:22, teamSize:2,
   actBudget:'', actLeads:'', actCloses:'', actDays:'',
+  mondayWebhookUrl:'https://aiagentsforsale.app.n8n.cloud/webhook/56a446ee-4a56-495c-aba0-7607204ef0c9',
+  mondayAutoFetch:true,           // ריענון אוטומטי בכל פתיחה
+  mondayLastFetch:null,           // תאריך הסנכרון האחרון
   history:[
     {label:'חודש −1', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
     {label:'חודש −2', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
@@ -1669,6 +1672,19 @@ function renderSettings(){
     <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px">הזן נתונים בפועל מחודשים קודמים. המערכת תחשב ממוצעים ותציג אותם ליד נתוני הבסיס למעלה — ככה תראה בעיניים אם המספרים שאתה משתמש בהם תואמים למציאות.</p>
     <div id="historyTable"></div>
   </div>
+  <div class="card" style="margin-bottom:16px"><div class="card-h"><h3>סנכרון נתונים ממאנדיי</h3>${state.mondayLastFetch?`<span class="sub">עודכן ${new Date(state.mondayLastFetch).toLocaleString('he-IL')}</span>`:''}</div>
+    <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px">משוך את נתוני הבסיס וההיסטוריה אוטומטית ממאנדיי דרך n8n. הנתונים נשארים פתוחים לעריכה ידנית אחרי המשיכה.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <div class="field" style="flex:1;min-width:280px"><span class="affix">URL</span>
+        <input type="url" placeholder="https://aiagentsforsale.app.n8n.cloud/webhook/..." value="${state.mondayWebhookUrl||''}" oninput="syncMondayUrl(this.value)">
+      </div>
+      <button class="btn btn-primary" onclick="fetchFromMonday(false)">משוך נתונים עכשיו</button>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--txt-dim)">
+      <input type="checkbox" ${state.mondayAutoFetch?'checked':''} onchange="toggleAutoFetch(this)">
+      <span>משוך נתונים אוטומטית בכל פתיחת האפליקציה</span>
+    </label>
+  </div>
   <div class="card"><div class="card-h"><h3>פעולות</h3></div>
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="exportConfig()">ייצוא קובץ גיבוי</button>
@@ -1886,6 +1902,105 @@ function importConfig(e){
 function resetAll(){ if(confirm('לאפס הכל לברירת מחדל?')){ state=structuredClone(DEFAULTS); saveState(); simState=null; salesView='team';activeRepId=null; navigate(currentPage); toast('אופס'); } }
 
 /* ============================================================
+   סנכרון נתונים ממאנדיי דרך n8n
+============================================================ */
+function showLoadingModal(msg){
+  let m=document.getElementById('loadingModal');
+  if(!m){
+    m=document.createElement('div');
+    m.id='loadingModal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:grid;place-items:center;backdrop-filter:blur(4px)';
+    document.body.appendChild(m);
+  }
+  m.innerHTML=`<div style="background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:30px 40px;text-align:center;min-width:260px;box-shadow:var(--shadow)">
+    <div style="width:48px;height:48px;border:3px solid var(--line-soft);border-top-color:var(--accent);border-radius:50%;margin:0 auto 14px;animation:spin 1s linear infinite"></div>
+    <div style="font-size:14px;color:var(--txt)">${msg||'טוען...'}</div>
+    <div style="font-size:11.5px;color:var(--txt-faint);margin-top:6px">משוך נתונים ממאנדיי</div>
+  </div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`;
+}
+function hideLoadingModal(){
+  const m=document.getElementById('loadingModal');
+  if(m) m.remove();
+}
+
+async function fetchFromMonday(silent){
+  if(!state.mondayWebhookUrl){
+    if(!silent) toast('חסרה כתובת webhook — הזן אותה בנתוני בסיס');
+    return false;
+  }
+  if(!silent) showLoadingModal('מושך נתונים ממאנדיי...');
+  try{
+    const res=await fetch(state.mondayWebhookUrl,{method:'GET',cache:'no-store'});
+    if(!res.ok) throw new Error('שגיאה ב-webhook: '+res.status);
+    const data=await res.json();
+    applyMondayData(data);
+    state.mondayLastFetch=new Date().toISOString();
+    saveState();
+    hideLoadingModal();
+    if(!silent) toast('הנתונים עודכנו ממאנדיי');
+    navigate(currentPage);
+    return true;
+  }catch(err){
+    hideLoadingModal();
+    if(!silent) toast('שגיאה במשיכת נתונים: '+err.message);
+    console.error('Monday fetch error:',err);
+    return false;
+  }
+}
+
+function applyMondayData(data){
+  // data = { current, history, staticDefaults, meta }
+  if(!data || !data.current){ throw new Error('פלט מאנדיי לא תקין'); }
+  const cur=data.current;
+  // === נתוני בסיס ===
+  // מחזיק רק נתונים שיש להם ערך - לא דורס ב-null
+  const setIfNum=(key,val)=>{ if(val!=null && !isNaN(val)) state[key]=val; };
+  setIfNum('costPerLead', cur.costPerLead);
+  setIfNum('closeRate', cur.closeRate);
+  setIfNum('answerRate', cur.answerRate);
+  setIfNum('setupFee', cur.setupAvg);
+  setIfNum('retainer', cur.retainerAvg);
+  setIfNum('salesCommPct', cur.salesCommPct);
+  setIfNum('processingFeePct', cur.processingFeePct);
+  setIfNum('onboardCommPct', cur.onboardCommPct);
+  setIfNum('fixedCosts', cur.fixedCosts);
+  // === נתוני actual (החודש בפועל) ===
+  setIfNum('actBudget', cur.budget);
+  setIfNum('actLeads', cur.totalLeads);
+  setIfNum('actCloses', cur.closes);
+  // ימים שעברו - מהתאריך עד היום (אם החודש הנוכחי הוא כעת)
+  if(cur.date){
+    const today=new Date();
+    const monthStart=new Date(cur.date);
+    if(today.getFullYear()===monthStart.getFullYear() && today.getMonth()===monthStart.getMonth()){
+      state.actDays=Math.min(today.getDate(), state.daysMonth);
+    } else {
+      state.actDays=state.daysMonth; // חודש סגור
+    }
+  }
+  // === היסטוריה ===
+  if(Array.isArray(data.history)){
+    state.history=data.history.map(m=>({
+      label: m.monthName || m.date || 'חודש',
+      budget: m.budget||'',
+      leads: m.totalLeads||'',
+      closes: m.closes||'',
+      setupRev: m.setupAvg||'',     // מחיר הקמה ממוצע
+      retainerRev: m.retainerAvg||'', // מחיר ריטיינר ממוצע
+    }));
+  }
+}
+function syncMondayUrl(val){
+  state.mondayWebhookUrl=(val||'').trim();
+  saveState();
+}
+function toggleAutoFetch(checkbox){
+  state.mondayAutoFetch=checkbox.checked;
+  saveState();
+}
+
+/* ============================================================
    ממשק
 ============================================================ */
 let toastTimer;
@@ -1907,6 +2022,10 @@ document.getElementById('mobileNav').innerHTML=Object.entries(PAGES).map(([k,p])
 
 syncGoalInputs();
 navigate('dashboard');
+// ריענון אוטומטי ממאנדיי בכל פתיחה (אם מוגדר ומופעל)
+if(state.mondayAutoFetch && state.mondayWebhookUrl){
+  setTimeout(()=>fetchFromMonday(true), 300);
+}
 </script>
 </body>
 </html>
