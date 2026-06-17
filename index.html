@@ -273,6 +273,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
   <aside class="sidebar">
     <div class="brand"><div class="brand-mark">Z</div><div class="brand-txt"><b>מרכז שליטה</b><span>KPI ותחזיות</span></div></div>
     <div class="goalbar">
+      <div id="baselineHint"></div>
       <div class="gb-lbl">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
         יעד רווח תפעולי חודשי
@@ -532,6 +533,21 @@ function syncGoalInputs(){
   const a=document.getElementById('globalGoal'), b=document.getElementById('globalGoalM');
   if(a&&document.activeElement!==a) a.value=state.goalProfit;
   if(b&&document.activeElement!==b) b.value=state.goalProfit;
+  // עדכון תצוגת בייסליין
+  const bl=lastMonthBaseline();
+  document.querySelectorAll('#baselineHint, #baselineHintM').forEach(el=>{
+    if(!bl || bl.operatingProfit==null){ el.innerHTML=''; return; }
+    const diff = state.goalProfit - bl.operatingProfit;
+    const pctUp = bl.operatingProfit>0 ? (diff/bl.operatingProfit)*100 : null;
+    const color = bl.operatingProfit>=0 ? 'var(--accent)' : 'var(--red)';
+    el.innerHTML=`<div style="font-size:11px;color:var(--txt-faint);margin-bottom:6px;line-height:1.5">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span>${bl.monthName} (בייסליין):</span>
+        <b style="font-family:'Rubik';color:${color};direction:ltr">${money(bl.operatingProfit)}₪</b>
+      </div>
+      ${pctUp!=null&&Math.abs(diff)>=1?`<div style="margin-top:3px;color:var(--txt-faint);font-size:10.5px">היעד גבוה ב-${pctUp>=0?'+':''}${fmt1(pctUp)}% מהבייסליין</div>`:''}
+    </div>`;
+  });
 }
 function navigate(page){
   currentPage=page;
@@ -2050,6 +2066,19 @@ function applyMondayData(data){
   }
   // === נתוני בסיס - מחושבים לפי מספר החודשים שנבחר ===
   recomputeCoreFromMonday();
+}
+
+function lastMonthBaseline(){
+  const data=state.mondayRaw;
+  if(!data || !data.current) return null;
+  const c=data.current;
+  return {
+    monthName: c.monthName || 'החודש האחרון',
+    operatingProfit: c.operatingProfit,
+    grossProfit: c.grossProfit,
+    revenue: c.revenue,
+    closes: c.closes,
+  };
 }
 
 /* מחשב את נתוני הליבה לפי mondayMonthsBack — ממוצע משוקלל לפי נפח */
