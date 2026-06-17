@@ -540,12 +540,16 @@ function syncGoalInputs(){
     const diff = state.goalProfit - bl.operatingProfit;
     const pctUp = bl.operatingProfit>0 ? (diff/bl.operatingProfit)*100 : null;
     const color = bl.operatingProfit>=0 ? 'var(--accent)' : 'var(--red)';
-    el.innerHTML=`<div style="font-size:11px;color:var(--txt-faint);margin-bottom:6px;line-height:1.5">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <span>${bl.monthName} (בייסליין):</span>
-        <b style="font-family:'Rubik';color:${color};direction:ltr">${money(bl.operatingProfit)}₪</b>
+    el.innerHTML=`<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line-soft)">
+      <div class="gb-lbl">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+        רווח תפעולי חודש שעבר (בייסליין)
       </div>
-      ${pctUp!=null&&Math.abs(diff)>=1?`<div style="margin-top:3px;color:var(--txt-faint);font-size:10.5px">היעד גבוה ב-${pctUp>=0?'+':''}${fmt1(pctUp)}% מהבייסליין</div>`:''}
+      <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="font-size:11.5px;color:var(--txt-faint)">${bl.monthName}</span>
+        <b style="font-family:'Rubik';font-weight:700;font-size:16px;color:${color};direction:ltr">${money(bl.operatingProfit)}₪</b>
+      </div>
+      ${pctUp!=null&&Math.abs(diff)>=1?`<div style="margin-top:6px;color:var(--txt-faint);font-size:11px;text-align:center">היעד גבוה ב-${pctUp>=0?'+':''}${fmt1(pctUp)}% מהבייסליין</div>`:''}
     </div>`;
   });
 }
@@ -2070,14 +2074,14 @@ function applyMondayData(data){
 
 function lastMonthBaseline(){
   const data=state.mondayRaw;
-  if(!data || !data.current) return null;
-  const c=data.current;
+  if(!data || !Array.isArray(data.history) || !data.history.length) return null;
+  const m=data.history[0]; // החודש הקודם (האחרון בהיסטוריה - הסגור)
   return {
-    monthName: c.monthName || 'החודש האחרון',
-    operatingProfit: c.operatingProfit,
-    grossProfit: c.grossProfit,
-    revenue: c.revenue,
-    closes: c.closes,
+    monthName: m.monthName || 'חודש שעבר',
+    operatingProfit: m.operatingProfit,
+    grossProfit: m.grossProfit,
+    revenue: m.revenue,
+    closes: m.closes,
   };
 }
 
