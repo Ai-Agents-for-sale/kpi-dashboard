@@ -338,7 +338,7 @@ const META = {
   costPerLead:{label:'מחיר לליד', sub:'עלות רכישת פנייה אחת', affix:'₪', icon:'lead', color:'blue'},
   answerRate:{label:'אחוז מענה לטלפון', sub:'כמה מהלידים עונים', affix:'%', icon:'phone', color:'purple'},
   closeRate:{label:'אחוז סגירה', sub:'מתוך מי שענה', affix:'%', icon:'conv', color:'green'},
-  avgMonths:{label:'חודשי שימור', sub:'כמה חודשים לקוח נשאר', affix:'חוד׳', icon:'clock', color:'purple'},
+  avgMonths:{label:'חודשי שימור (LTV)', sub:'נגזר מ-100÷שחיקה', affix:'חוד׳', icon:'clock', color:'purple'},
   setupFee:{label:'מחיר הקמה', sub:'תשלום חד-פעמי', affix:'₪', icon:'money', color:'green'},
   salesCommPct:{label:'עמלת מכירות', sub:'% ממחיר ההקמה', affix:'%', icon:'percent', color:'amber'},
   retainer:{label:'ריטיינר חודשי', sub:'הכנסה חוזרת', affix:'₪', icon:'repeat', color:'green'},
@@ -397,8 +397,8 @@ function compute(s = state){
 
   const totalRetainer  = s.retainer*s.avgMonths;          // סך ריטיינרים שלקוח משלם לאורך חייו
   const revPerClient   = s.setupFee + totalRetainer;     // LTV מלא של לקוח
-  const leadsPerClient = effConv>0 ? 1/effConv : 0;
-  const callsPerClient = close>0 ? 1/close : 0;
+  const leadsPerClient = effConv>0 ? 1/effConv : Infinity;
+  const callsPerClient = close>0 ? 1/close : Infinity;
   const onboardPerClient = 1;
   const onboardHrsPerClient = s.onboardMin/60;
 
@@ -735,15 +735,26 @@ function renderDashboard(){
       </div>
     </div>
     <div class="card">
-      <div class="card-h"><h3>נקודת איזון (Break-Even) ${help('be')}</h3><span class="sub">כמה לקוחות רק לכסות הוצאות</span></div>
+      <div class="card-h"><h3>נקודת איזון חודשית ${help('be')}</h3><span class="sub">${be>0?'כמה לקוחות חדשים בחודש לכסות הוצאות':'הבסיס שלך לבד מכסה את ההוצאות'}</span></div>
+      ${be>0 ? `
       <div style="display:flex;align-items:baseline;gap:10px;margin:6px 0 14px">
         <span style="font-family:'Rubik';font-size:42px;font-weight:800;color:var(--amber)">${fmt1(be)}</span>
-        <span style="color:var(--txt-dim);font-size:15px">לקוחות בחודש</span></div>
+        <span style="color:var(--txt-dim);font-size:15px">לקוחות חדשים בחודש</span></div>
       <div class="statlist">
-        ${slRow('amber','מחזור בנקודת איזון',money(beRev)+' ₪')}
+        ${slRow('green','ריטיינר חודשי מבסיס קיים','+'+money(c.monthlyRetainerFromBase)+' ₪')}
+        ${slRow('amber','מחזור חודשי בנקודת איזון',money(beRev)+' ₪')}
         ${slRow('red','הוצאות קבועות לכיסוי',money(state.fixedCosts)+' ₪')}
-        ${slRow('blue','כל לקוח מעבר לזה = רווח נקי','+'+money(c.grossPerClient)+' ₪')}
+        ${(()=>{ const m1=monthlyProfitFromNewClients(be+1); const m0=monthlyProfitFromNewClients(be); const perExtra=m1.monthlyOperating-m0.monthlyOperating; return slRow('blue','כל לקוח נוסף מעבר לזה','+'+money(perExtra)+' ₪ רווח'); })()}
+      </div>` : `
+      <div style="display:flex;align-items:baseline;gap:10px;margin:6px 0 14px">
+        <span style="font-family:'Rubik';font-size:38px;font-weight:800;color:var(--accent)">+${money(monthlyProfitFromNewClients(0).monthlyOperating)}₪</span>
+        <span style="color:var(--txt-dim);font-size:14px">רווח מהבסיס לבד</span></div>
+      <div class="statlist">
+        ${slRow('green','ריטיינר חודשי מבסיס קיים','+'+money(c.monthlyRetainerFromBase)+' ₪')}
+        ${slRow('red','הוצאות קבועות',money(state.fixedCosts)+' ₪')}
+        ${(()=>{ const m1=monthlyProfitFromNewClients(1); const m0=monthlyProfitFromNewClients(0); const perExtra=m1.monthlyOperating-m0.monthlyOperating; return slRow('blue','כל לקוח חדש מוסיף','+'+money(perExtra)+' ₪ רווח'); })()}
       </div>
+      <div style="margin-top:10px;padding:10px 12px;background:var(--accent-soft);border-radius:8px;font-size:12.5px;color:var(--accent);line-height:1.5">✓ הבסיס הקיים שלך כבר מכסה את ההוצאות הקבועות. כל לקוח חדש = רווח נטו.</div>`}
     </div>
   </div>
   <div class="card">
@@ -874,13 +885,17 @@ function onGoalRev(v){
   renderForecast(plan.clients);
   refreshActual();
 }
-function goalQuick(plan){return `<div class="statlist">
+function goalQuick(plan){
+  const baseProfit = monthlyProfitFromNewClients(0).monthlyOperating;
+  const alreadyCovered = plan.clients<=0 && state.goalProfit<=baseProfit;
+  return `<div class="statlist">
   ${slRow('green','לקוחות חדשים נדרשים',fmt1(plan.clients))}
   ${slRow('blue','מחזור חודשי נדרש',money(plan.revenue)+' ₪')}
   ${plan.revenueFromExisting!=null&&plan.revenueFromExisting>0?slRow('blue','&nbsp;&nbsp;מתוכו: ריטיינר מבסיס קיים','<span style="color:var(--txt-faint)">'+money(plan.revenueFromExisting)+' ₪</span>'):''}
-  ${plan.revenueFromNew!=null&&plan.revenueFromExisting>0?slRow('blue','&nbsp;&nbsp;מתוכו: הקמות + ריטיינר חדש','<span style="color:var(--txt-faint)">'+money(plan.revenueFromNew)+' ₪</span>'):''}
+  ${plan.revenueFromNew!=null&&plan.revenueFromNew>0?slRow('blue','&nbsp;&nbsp;מתוכו: הקמות + ריטיינר חדש','<span style="color:var(--txt-faint)">'+money(plan.revenueFromNew)+' ₪</span>'):''}
   ${slRow('amber','רווח גולמי',money(plan.gross)+' ₪')}
-  ${slRow('purple',L('bd_marketing'),money(plan.marketing)+' ₪')}</div>`;}
+  ${slRow('purple',L('bd_marketing'),money(plan.marketing)+' ₪')}</div>
+  ${alreadyCovered?`<div style="margin-top:10px;padding:10px 12px;background:var(--accent-soft);border-radius:8px;font-size:12.5px;color:var(--accent);line-height:1.5">✓ הבסיס הקיים שלך כבר מכסה את היעד הזה (${money(baseProfit)}₪ רווח מהריטיינרים בלבד). כל לקוח חדש שתגייס יהיה רווח נטו.</div>`:''}`;}
 function revQuick(plan){return `<div class="statlist">
   ${slRow('green','רווח תפעולי','<b style="color:var(--accent)">'+money(plan.operating)+' ₪</b>')}
   ${slRow('amber','רווח גולמי',money(plan.gross)+' ₪')}
@@ -894,10 +909,11 @@ function renderBrk(plan){
   const capMonth=c.callsPerMonthPerRep*teamSize;   // קיבולת שיחות חודשית של כל הצוות
   const capDay=c.callsPerDayPerRep*teamSize;        // קיבולת יומית
   const callsOver=plan.calls>capMonth;              // האם נדרש יותר מהקיבולת
-  // רווח מקסימלי לפי הקיבולת: מקס שיחות -> מקס לקוחות -> מקס רווח
+  // רווח מקסימלי לפי הקיבולת: מקס שיחות -> מקס לקוחות -> מקס רווח חודשי
   const maxClients = c.callsPerClient>0 ? capMonth/c.callsPerClient : 0;
-  const maxOperating = maxClients*c.grossPerClient - state.fixedCosts;
-  const maxRevenue = maxClients*c.revPerClient;
+  const maxPlan = monthlyProfitFromNewClients(maxClients);
+  const maxOperating = maxPlan.monthlyOperating;
+  const maxRevenue = maxPlan.totalMonthlyRevenue;
   const cols=[
     ['bd_marketing', money(plan.marketing)+'₪', money(plan.marketing/d)+'₪','amber'],
     ['bd_leads', fmt(plan.leads), fmt1(plan.leads/d),'blue'],
@@ -1418,7 +1434,7 @@ const LOCK_INFO={
   budget:{name:'תקציב שיווק / לידים',desc:'תקציב השיווק (מספר הלידים) נשאר קבוע. השאלה: מאותו תקציב, כמה לקוחות, מחזור ורווח אקבל? כאן שינוי באחוז מענה/סגירה כן משנה הכל — כמו בעולם האמיתי.',when:'מתי להשתמש: כשבודקים שיפור ביצועים בלי להוציא יותר כסף — כמה יותר לקוחות ורווח אפשר להוציא מאותו תקציב אם הצוות משתפר באחוז הסגירה או המענה.'},
   revenue:{name:'יעד מחזור',desc:'יעד המחזור נשאר קבוע. השאלה: כמה לקוחות, לידים ותקציב שיווק צריך כדי להגיע לאותו מחזור עם הפרמטרים החדשים, וכמה רווח יישאר?',when:'מתי להשתמש: כשיש יעד מחזור קבוע ורוצים לבדוק כמה "יקר" או "זול" להגיע אליו בתנאים שונים — כמה תקציב ולקוחות יידרשו, וכמה זה ישאיר ברווח.'},
   invest:{name:'מצב השקעה (תקציב חופשי)',desc:'כאן אתה גורר את תקציב השיווק בעצמך, ורואה כמה לידים, לקוחות, מחזור ורווח יוצאים ממנו. כולל בדיקה אם צוות המכירות בכלל יכול לטפל בכמות הלידים החדשה — ואם לא, מה צריך לעשות (יותר שעות או שיחה קצרה יותר).',when:'מתי להשתמש: כששוקלים כמה להשקיע בשיווק ורוצים לראות את התשואה — כמה לקוחות ורווח כל שקל שיווק מביא, והאם הצוות מסוגל לעמוד בעומס הלידים.'},
-  profitMoves:{name:'יעד רווח — איזה מהלך הכי משתלם?',desc:'אתה קובע יעד רווח. המערכת מחשבת לבד מה המהלכים האפשריים שיביאו אותך אליו — יותר לידים, אחוז המרה גבוה יותר, מחיר הקמה גבוה יותר, או חודשי שימור ארוכים יותר. כל מהלך לחוד, עם דירוג של מה הכי יעיל פר יחידת מאמץ.',when:'מתי להשתמש: כשרוצים לדעת בתכלס איזה מהלך הכי שווה לעשות עכשיו כדי להעלות את הרווח. זה הסימולטור הכי שימושי ליום-יום.'},
+  profitMoves:{name:'יעד רווח — איזה מהלך הכי משתלם?',desc:'אתה קובע יעד רווח. המערכת מחשבת לבד מה המהלכים האפשריים שיביאו אותך אליו — יותר לידים, אחוז המרה גבוה יותר, מחיר הקמה גבוה יותר, או הפחתה בשחיקה. כל מהלך לחוד, עם דירוג של מה הכי יעיל פר יחידת מאמץ.',when:'מתי להשתמש: כשרוצים לדעת בתכלס איזה מהלך הכי שווה לעשות עכשיו כדי להעלות את הרווח. זה הסימולטור הכי שימושי ליום-יום.'},
 };
 function renderScenarios(){
   if(!simState) simState=structuredClone(state);
@@ -1468,7 +1484,7 @@ function renderScenarios(){
       ${slider('closeRate','אחוז סגירה',5,60,1,'%')}
       ${slider('setupFee','מחיר הקמה',0,5000,50,'₪')}
       ${slider('retainer','ריטיינר חודשי',0,2000,50,'₪')}
-      ${slider('avgMonths','חודשי שימור',1,24,1,'חוד׳')}
+      ${slider('churnRate','שחיקה חודשית',0,30,0.5,'%')}
       ${slider('salesCommPct','עמלת מכירות',0,70,1,'%')}
       ${isInvest? slider('callMin','אורך שיחה ממוצעת',5,90,1,'דק׳') : ''}
       ${isInvest? slider('workHoursDay','שעות עבודה ביום לאיש',1,12,0.5,'שע׳') : ''}
@@ -1493,6 +1509,8 @@ function slider(key,label,min,max,step,affix){
     <input type="range" min="${min}" max="${max}" step="${step}" value="${simState[key]}" data-key="${key}" data-affix="${affix}" data-step="${step}" oninput="onSlider(this)"></div>`;
 }
 function onSlider(i){ simState[i.dataset.key]=parseFloat(i.value);
+  // אם שינו churnRate -> נחשב מחדש avgMonths (הם תלויים)
+  if(i.dataset.key==='churnRate' && simState.churnRate>0) simState.avgMonths = 100/simState.churnRate;
   const step=parseFloat(i.dataset.step)||1; const disp=step<1?fmt1(simState[i.dataset.key]):fmt(simState[i.dataset.key]);
   i.closest('.slider-row').querySelector('.sr-h b').innerHTML=`${disp} <span style="font-size:12px;color:var(--txt-dim)">${i.dataset.affix}</span>`;
   updateSim(); }
@@ -1558,31 +1576,32 @@ function updateProfitMoves(){
   const currentClients = currentPlan.clients;
   const currentLeads   = currentPlan.leads;
   const currentProfit  = s.goalProfit;                    // הרווח הנוכחי שאתה מתכנן (כיעד)
-  // יעד הלקוחות אם לא משנים כלום אחר
-  const targetClients = c.grossPerClient>0 ? (goal + s.fixedCosts)/c.grossPerClient : Infinity;
+  // יעד הלקוחות אם לא משנים כלום אחר - לפי המודל החודשי
+  const targetClients = newClientsForMonthlyProfit(goal, s);
 
-  // ========= ROI לכל פרמטר (השפעה מרגינלית של יחידה אחת) =========
-  // 1) +1 ליד בחודש: ליד נוסף = effConv לקוח נוסף × רווח גולמי ללקוח, פחות עלות הליד עצמו
-  const roi_lead = c.effConv * c.grossPerClient - s.costPerLead;
-  // ערוך לכל 10 לידים נוספים בחודש לשיווק יותר אטרקטיבי לעין
-  // 2) +1% באחוז סגירה: ↑close → ↑effConv → ↑clients מאותם לידים, פחות עמלות נוספות
-  // פירוט: dProfit/dClose = leads * dEffConv/dClose * grossPerClient (ופחות שינוי בעמלות סגירה = setupFee*commPct)
-  // dEffConv = answer * dClose. עליה ב-1% close → answer*0.01 effConv → leads*answer*0.01 לקוחות נוספים × grossPerClient
-  const roi_closePerPP = currentLeads * c.answer * 0.01 * c.grossPerClient;
-  // 3) +1% באחוז מענה: dProfit ≈ leads * dAnswer/dAns * close * grossPerClient = leads*0.01*close*grossPerClient
-  const roi_answerPerPP = currentLeads * 0.01 * c.close * c.grossPerClient;
-  // 4) +10 ₪ במחיר הקמה: dProfit ≈ clients * 10 * (1 - commPct - procPct)
-  // (כי כל ₪ נוסף בהקמה → +1 הכנסה, אבל +commPct בעמלת מכירה ו-procPct בסליקה)
+  // ========= ROI לכל פרמטר במודל חודשי =========
+  // רווח חודשי מלקוח חדש אחד (החודש בלבד): הקמה + ריטיינר ראשון פחות עלויות
+  const profitFromOneNewClient = (s.setupFee + s.retainer)*(1 - c.procPct) - s.setupFee*c.commPct - s.retainer*c.onbCommPct;
+
+  // 1) +1 ליד בחודש: ליד נוסף = effConv לקוח חדש × רווח חודשי מלקוח, פחות עלות הליד
+  const roi_lead = c.effConv * profitFromOneNewClient - s.costPerLead;
+  // 2) +1% באחוז סגירה: leads * answer * 0.01 לקוחות נוספים × רווח חודשי מלקוח
+  const roi_closePerPP = currentLeads * c.answer * 0.01 * profitFromOneNewClient;
+  // 3) +1% באחוז מענה
+  const roi_answerPerPP = currentLeads * 0.01 * c.close * profitFromOneNewClient;
+  // 4) +10 ₪ במחיר הקמה: clients * 10 * (1-commPct-procPct) - על לקוחות חדשים בלבד
   const roi_setupPer10 = currentClients * 10 * (1 - c.commPct - c.procPct);
-  // 5) +1 חודש שימור: dProfit ≈ clients * retainer * (1 - procPct)
-  // כי כל חודש נוסף = retainer הכנסה נוסף ללקוח, פחות סליקה. אונבורדינג כבר שולם בחודש הראשון
-  const roi_monthPerUnit = currentClients * s.retainer * (1 - c.procPct);
-  // 6) הפחתת -1 ₪ במחיר ליד: dProfit ≈ +leads (חוסכים על כל ליד)
+  // 5) +10 ₪ בריטיינר חודשי - השפעה משולבת:
+  //    א. על לקוחות חדשים שיגויסו: +10 × (1 − onbComm − proc)
+  //    ב. על הבסיס הקיים: activePayingThisMonth × 10 × (1 − proc)
+  const roi_retainerPer10 = currentClients * 10 * (1 - c.onbCommPct - c.procPct)
+                          + c.activePayingThisMonth * 10 * (1 - c.procPct);
+  // 6) -1% בשחיקה חודשית: הבסיס שורד יותר, ריטיינר חודשי גדל
+  //    activeNow * 0.005 פחות לקוחות שיעזבו במחצית החודש
+  const roi_churnPerPP = c.activeNow * 0.005 * s.retainer * (1 - c.procPct);
+  // 7) הפחתת -1 ₪ במחיר ליד
   const roi_cplPer1 = currentLeads * 1;
-  // 7) +10 ₪ בריטיינר חודשי: כל לקוח משלם +10 × חודשי שימור.
-  // חודש ראשון: פחות עמלת אונבורדינג ופחות סליקה. שאר החודשים: רק פחות סליקה
-  const roi_retainerPer10 = currentClients * 10 * ((1 - c.onbCommPct - c.procPct) + (s.avgMonths - 1) * (1 - c.procPct));
-  // 8) -1% בעמלת מכירות: חוסכים setupFee*0.01 על כל לקוח
+  // 8) -1% בעמלת מכירות: clients * setupFee * 0.01
   const roi_commPerPP = currentClients * s.setupFee * 0.01;
 
   // קיבולת צוות לבדיקת ריאליות
@@ -1610,22 +1629,22 @@ function updateProfitMoves(){
   const moves = [
     {name:'תוסיף לידים', unit:'10 לידים בחודש', effect: roi_lead*10, color:'blue', icon:'lead', capImpact:'leads',
       explain:'כל 10 לידים נוספים → נהפכים בחלקם ללקוחות לפי אחוז ההמרה, פחות עלות הלידים עצמם',
-      formula:`10 לידים × ${fmt1(c.effConv*100)}% המרה × ${money(c.grossPerClient)}₪ רווח ללקוח − 10 × ${s.costPerLead}₪ עלות`},
+      formula:`10 לידים × ${fmt1(c.effConv*100)}% המרה × ${money(profitFromOneNewClient)}₪ רווח חודשי ללקוח − 10 × ${s.costPerLead}₪ עלות`},
     {name:'תעלה אחוז סגירה', unit:'אחוז', effect: roi_closePerPP, color:'green', icon:'conv', capImpact:'close',
       explain:'אחוז סגירה משפיע רק על השיחות שענו להן (לכן אחוז המענה בחישוב). כל +1% = יותר לקוחות מאותם לידים',
-      formula:`${fmt(currentLeads)} לידים × ${s.answerRate}% מענה × 1% × ${money(c.grossPerClient)}₪`},
+      formula:`${fmt(currentLeads)} לידים × ${s.answerRate}% מענה × 1% × ${money(profitFromOneNewClient)}₪`},
     {name:'תעלה אחוז מענה', unit:'אחוז', effect: roi_answerPerPP, color:'purple', icon:'phone', capImpact:'answer',
       explain:'אחוז מענה מביא יותר שיחות, אבל רק חלק מהן ייסגרו (לכן אחוז הסגירה בחישוב)',
-      formula:`${fmt(currentLeads)} לידים × 1% × ${s.closeRate}% סגירה × ${money(c.grossPerClient)}₪`},
+      formula:`${fmt(currentLeads)} לידים × 1% × ${s.closeRate}% סגירה × ${money(profitFromOneNewClient)}₪`},
     {name:'תעלה מחיר הקמה', unit:'10 ₪', effect: roi_setupPer10, color:'amber', icon:'wallet',
       explain:'כל ₪ נוסף בהקמה הוא הכנסה ישירה לכל לקוח חדש, פחות עמלת המכירות והסליקה שגדלות יחד איתו',
       formula:`${fmt1(currentClients)} לקוחות × 10₪ × (1 − ${s.salesCommPct}% עמלה − ${s.processingFeePct}% סליקה)`},
     {name:'תעלה ריטיינר חודשי', unit:'10 ₪', effect: roi_retainerPer10, color:'green', icon:'repeat',
-      explain:'כל ₪ נוסף בריטיינר מתרבה במספר חודשי השימור. עמלת אונבורדינג רק על החודש הראשון',
-      formula:`${fmt1(currentClients)} לקוחות × 10₪ × (חודש 1: 1−${s.onboardCommPct}%−${s.processingFeePct}% + ${s.avgMonths-1} חודשים: 1−${s.processingFeePct}%)`},
-    {name:'תאריך שימור', unit:'חודש', effect: roi_monthPerUnit, color:'green', icon:'repeat',
-      explain:'כל חודש נוסף שלקוח נשאר = ריטיינר אחד נוסף. עמלת אונבורדינג כבר שולמה בחודש הראשון',
-      formula:`${fmt1(currentClients)} לקוחות × ${money(s.retainer)}₪ ריטיינר × (1 − ${s.processingFeePct}% סליקה)`},
+      explain:'כל ₪ נוסף בריטיינר משפיע גם על לקוחות חדשים וגם על כל בסיס הלקוחות הקיים — הכנסה חוזרת חודשית',
+      formula:`חדשים: ${fmt1(currentClients)} × 10₪ × (1−${s.onboardCommPct}%−${s.processingFeePct}%) + בסיס: ${fmt1(c.activePayingThisMonth)} × 10₪ × (1−${s.processingFeePct}%)`},
+    {name:'תוריד שחיקה חודשית', unit:'אחוז', effect: roi_churnPerPP, color:'green', icon:'repeat',
+      explain:'כל 1% פחות שחיקה = יותר לקוחות פעילים שמשלמים ריטיינר. השפעה ישירה על הבסיס הקיים החודש הזה',
+      formula:`${fmt1(c.activeNow)} פעילים × 0.5% × ${money(s.retainer)}₪ ריטיינר × (1 − ${s.processingFeePct}% סליקה)`},
     {name:'תוריד עמלת מכירות', unit:'אחוז', effect: roi_commPerPP, color:'amber', icon:'percent',
       explain:'הורדה של 1% בעמלה = חיסכון של 1% ממחיר ההקמה על כל לקוח חדש',
       formula:`${fmt1(currentClients)} לקוחות × ${money(s.setupFee)}₪ הקמה × 1%`},
@@ -1697,8 +1716,8 @@ function updateProfitMoves(){
       // נחשב: אם נעלה את אחוז הסגירה ל-80%, כמה לידים נוספים נצטרך?
       const maxedClose = CAP_CLOSE/100;
       const newEffMax = c.answer * maxedClose;
-      // ROI של ליד בהמרה החדשה
-      const roiLeadAtMax = newEffMax * c.grossPerClient - s.costPerLead;
+      // ROI של ליד בהמרה החדשה - לפי המודל החודשי
+      const roiLeadAtMax = newEffMax * profitFromOneNewClient - s.costPerLead;
       // כמה רווח נשיג מהשיפור עד לתקרה?
       const profitFromMaxClose = roi_closePerPP * (CAP_CLOSE - s.closeRate);
       const remainingGap = profitGap - profitFromMaxClose;
@@ -1723,7 +1742,7 @@ function updateProfitMoves(){
     } else {
       const maxedAns = 1.0;
       const newEffMax = maxedAns * c.close;
-      const roiLeadAtMax = newEffMax * c.grossPerClient - s.costPerLead;
+      const roiLeadAtMax = newEffMax * profitFromOneNewClient - s.costPerLead;
       const profitFromMaxAns = roi_answerPerPP * (CAP_ANS - s.answerRate);
       const remainingGap = profitGap - profitFromMaxAns;
       const extraLeads = roiLeadAtMax>0 ? remainingGap/roiLeadAtMax : Infinity;
@@ -1743,18 +1762,24 @@ function updateProfitMoves(){
     targets.push({name:'תעלה מחיר הקמה', from:money(s.setupFee)+'₪', to:money(s.setupFee+dSetup)+'₪', delta:'+'+money(dSetup)+'₪', unit:'מחיר הקמה', color:'amber', icon:'wallet'});
   }
   // ====== ריטיינר חודשי ======
-  // חודש 1: ריטיינר * (1 - onbComm - proc), שאר החודשים: ריטיינר * (1 - proc)
-  const retainerSlope = currentClients * ((1 - c.onbCommPct - c.procPct) + (s.avgMonths - 1) * (1 - c.procPct));
+  // שיפוע = השפעה על חדשים + השפעה על בסיס קיים
+  const retainerSlope = currentClients * (1 - c.onbCommPct - c.procPct)
+                      + c.activePayingThisMonth * (1 - c.procPct);
   if(retainerSlope>0){
     const dRet=profitGap/retainerSlope;
     targets.push({name:'תעלה ריטיינר חודשי', from:money(s.retainer)+'₪', to:money(s.retainer+dRet)+'₪', delta:'+'+money(dRet)+'₪', unit:'ריטיינר חודשי', color:'green', icon:'repeat'});
   }
-  // ====== חודשי שימור ======
-  // כל חודש נוסף = רק ריטיינר * (1 - proc), בלי אונבורדינג כי כבר שולם
-  const monthSlope = currentClients*s.retainer*(1-c.procPct);
-  if(monthSlope>0){
-    const dMonths=profitGap/monthSlope;
-    targets.push({name:'תאריך שימור', from:fmt1(s.avgMonths)+' חוד׳', to:fmt1(s.avgMonths+dMonths)+' חוד׳', delta:'+'+fmt1(dMonths)+' חודשים', unit:'חודשי שימור', color:'green', icon:'repeat'});
+  // ====== תוריד שחיקה חודשית ======
+  // שיפוע = activeNow * 0.005 * retainer * (1 - proc)  לכל 1% הורדה
+  const churnSlope = c.activeNow * 0.005 * s.retainer * (1 - c.procPct);
+  if(churnSlope>0 && s.churnRate>0){
+    const dChurn=profitGap/churnSlope;
+    const wouldBeNeg = dChurn >= s.churnRate;
+    targets.push({name:'תוריד שחיקה חודשית', from:fmt1(s.churnRate)+'%',
+      to: wouldBeNeg ? '0% (תקרה)' : fmt1(Math.max(0,s.churnRate-dChurn))+'%',
+      delta: wouldBeNeg ? '−'+fmt1(s.churnRate)+' נקודות (לתקרה)' : '−'+fmt1(dChurn)+' נקודות',
+      unit:'שחיקה חודשית', color:'green', icon:'repeat',
+      infeasible: wouldBeNeg ? 'אי אפשר להוריד שחיקה ל-0%. תרכז במקביל את שאר המהלכים' : null});
   }
   // ====== עמלת מכירות ======
   const commSlope = currentClients*s.setupFee*0.01;
@@ -1886,7 +1911,7 @@ const KPI_SOURCE = {
   closeRate:   {type:'computed', formula:'סגירות ÷ שיחות שענו'},
   setupFee:    {type:'computed', formula:'סך הקמות ÷ סך סגירות'},
   retainer:    {type:'computed', formula:'סך ריטיינרים ÷ סך לקוחות פעילים'},
-  avgMonths:   {type:'static',   formula:null},
+  avgMonths:   {type:'computed', formula:'100 ÷ אחוז שחיקה חודשי'},
   salesCommPct:{type:'monday',   formula:null},
   fixedCosts:  {type:'monday',   formula:null},
   callMin:     {type:'static',   formula:null},
@@ -1894,7 +1919,7 @@ const KPI_SOURCE = {
   onboardCostHr:{type:'static',  formula:null},
   onboardCommPct:{type:'monday', formula:null},
   processingFeePct:{type:'monday',formula:null},
-  activeClients:{type:'monday',formula:'כמות חיובי ריטיינר בחודש האחרון'},
+  activeClients:{type:'computed', formula:'פעילים חודש שעבר + סגירות החודש − שחיקה צפויה'},
   churnRate:{type:'computed',formula:'סך לקוחות שעזבו ÷ סך לקוחות פעילים (לפי החודשים שנבחרו)'},
   daysMonth:    {type:'static',  formula:null},
   workDaysMonth:{type:'static',  formula:null},
@@ -2097,10 +2122,11 @@ function settingRow(key,m){
 }
 function explainKey(key){return ({
   costPerLead:'תקציב שיווק = לידים × ערך זה', answerRate:'מכפיל את מספר הלידים הנדרש',
-  closeRate:'אחוז סגירה ממי שענה', setupFee:'בסיס לעמלת המכירה', retainer:'× חודשי שימור = הכנסה חוזרת',
-  avgMonths:'מגדיל LTV', salesCommPct:'עלות משתנה על כל עסקה', fixedCosts:'קובע נקודת איזון',
-  callMin:'כמה שיחות אפשר ביום', onboardMin:'זמן פגישה לכל לקוח', onboardCostHr:'עלות שעת אונבורדינג (אם רלוונטי)',
-  onboardCommPct:'נגזרת מסך הריטיינרים של הלקוח', processingFeePct:'נגזרת מכל ההכנסה (הקמה + ריטיינרים)',
+  closeRate:'אחוז סגירה ממי שענה', setupFee:'בסיס לעמלת המכירה', retainer:'בסיס לעמלת אונבורדינג + הכנסה חודשית מכל לקוח פעיל',
+  avgMonths:'נגזר מ-100÷שחיקה. משמש לחישוב LTV וכתחזית', salesCommPct:'עלות משתנה על כל עסקה חדשה', fixedCosts:'קובע נקודת איזון',
+  callMin:'כמה שיחות אפשר ביום', onboardMin:'זמן פגישה לכל לקוח חדש', onboardCostHr:'עלות שעת אונבורדינג (אם רלוונטי)',
+  onboardCommPct:'נגזרת מהריטיינר הראשון של הלקוח', processingFeePct:'נגזרת מכל ההכנסה (הקמה + ריטיינרים)',
+  activeClients:'בסיס הריטיינרים החודשי שלך', churnRate:'קובע את אורך החיים ואת קצב התחזית',
 })[key]||'';}
 function onSetting(input){ state[input.dataset.key]=parseFloat(input.value)||0; saveState(); }
 
