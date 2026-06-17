@@ -703,6 +703,14 @@ function autoSizeInputs(){
       document.body.removeChild(span);
       inp.style.width=Math.min(w, inp.parentElement.offsetWidth||999)+'px';
     });
+    // קיטון גופן אוטומטי במספרים ארוכים בקוביות נתוני בסיס
+    document.querySelectorAll('.kpi-table .field input[type="number"]').forEach(inp=>{
+      const len=String(inp.value||'').length;
+      if(len>=10) inp.style.fontSize='11px';
+      else if(len>=8) inp.style.fontSize='12px';
+      else if(len>=6) inp.style.fontSize='13px';
+      else inp.style.fontSize='';
+    });
   },0);
 }
 
@@ -1910,7 +1918,7 @@ const KPI_SOURCE = {
   answerRate:  {type:'computed', formula:'שיחות שבוצעו ÷ לידים כללית'},
   closeRate:   {type:'computed', formula:'סגירות ÷ שיחות שענו'},
   setupFee:    {type:'computed', formula:'סך הקמות ÷ סך סגירות'},
-  retainer:    {type:'computed', formula:'סך ריטיינרים ÷ סך לקוחות פעילים'},
+  retainer:    {type:'computed', formula:'ריטיינר ממוצע של לקוחות פעילים, משוקלל לפי כמות פעילים בחודש'},
   avgMonths:   {type:'computed', formula:'100 ÷ אחוז שחיקה חודשי'},
   salesCommPct:{type:'monday',   formula:null},
   fixedCosts:  {type:'monday',   formula:null},
@@ -1919,8 +1927,8 @@ const KPI_SOURCE = {
   onboardCostHr:{type:'static',  formula:null},
   onboardCommPct:{type:'monday', formula:null},
   processingFeePct:{type:'monday',formula:null},
-  activeClients:{type:'computed', formula:'פעילים חודש שעבר + סגירות החודש − שחיקה צפויה'},
-  churnRate:{type:'computed',formula:'סך לקוחות שעזבו ÷ סך לקוחות פעילים (לפי החודשים שנבחרו)'},
+  activeClients:{type:'monday', formula:'כמות לקוחות פעילים בסוף חודש (מהמאנדיי)'},
+  churnRate:{type:'computed',formula:'סך לקוחות שעזבו ÷ סך פעילים בתחילת החודש (לפי החודשים שנבחרו)'},
   daysMonth:    {type:'static',  formula:null},
   workDaysMonth:{type:'static',  formula:null},
   workHoursDay: {type:'static',  formula:null},
@@ -1989,24 +1997,39 @@ function renderHistoryTable(){
   if(!state.history) state.history=[];
   const rows=state.history.map((h,i)=>`
     <tr>
-      <td><input class="lbl-edit" style="font-weight:600;font-size:13.5px" value="${(h.label||'חודש').replace(/"/g,'&quot;')}" oninput="updateHistory(${i},'label',this.value)"></td>
-      <td><div class="field w-sm"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.budget}" oninput="updateHistory(${i},'budget',this.value)"></div></td>
-      <td><div class="field w-sm"><input type="number" placeholder="—" value="${h.leads}" oninput="updateHistory(${i},'leads',this.value)"></div></td>
-      <td><div class="field w-sm"><input type="number" placeholder="—" value="${h.closes}" oninput="updateHistory(${i},'closes',this.value)"></div></td>
-      <td><div class="field w-sm"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.setupRev||''}" oninput="updateHistory(${i},'setupRev',this.value)"></div></td>
-      <td><div class="field w-sm"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.retainerRev||''}" oninput="updateHistory(${i},'retainerRev',this.value)"></div></td>
+      <td style="text-align:center"><input class="lbl-edit" style="font-weight:600;font-size:13.5px;text-align:center" value="${(h.label||'חודש').replace(/"/g,'&quot;')}" oninput="updateHistory(${i},'label',this.value)"></td>
+      <td style="text-align:center"><div class="field w-sm" style="margin:0 auto"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.budget}" oninput="updateHistory(${i},'budget',this.value)"></div></td>
+      <td style="text-align:center"><div class="field w-sm" style="margin:0 auto"><input type="number" placeholder="—" value="${h.leads}" oninput="updateHistory(${i},'leads',this.value)"></div></td>
+      <td style="text-align:center"><div class="field w-sm" style="margin:0 auto"><input type="number" placeholder="—" value="${h.closes}" oninput="updateHistory(${i},'closes',this.value)"></div></td>
+      <td style="text-align:center"><div class="field w-sm" style="margin:0 auto"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.setupRev||''}" oninput="updateHistory(${i},'setupRev',this.value)"></div></td>
+      <td style="text-align:center"><div class="field w-sm" style="margin:0 auto"><span class="affix">₪</span><input type="number" placeholder="—" value="${h.retainerRev||''}" oninput="updateHistory(${i},'retainerRev',this.value)"></div></td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:600;color:${h.churn!=null?'var(--red)':'var(--txt-faint)'};direction:ltr">${h.churn!=null?h.churn:'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:600;color:${h.churnPct!=null?'var(--red)':'var(--txt-faint)'};direction:ltr">${h.churnPct!=null?fmt1(h.churnPct)+'%':'—'}</td>
       <td style="font-size:11.5px;color:var(--txt-faint);direction:ltr;text-align:right">${histRowSummary(h)}</td>
     </tr>`).join('');
   const h=historyAverages();
   const hasAny = state.history.length>0 && (h.totalBudget||h.totalLeads||h.totalCloses||h.costPerLead!=null);
   const n = h.monthsAny || state.history.length || 1;
+  // חישוב סך שחיקה היסטורית
+  let sumChurnHist=0, sumActiveStartHist=0, hasChurnData=false;
+  for(const item of state.history){
+    if(item.churn!=null && item.activeStart>0){
+      sumChurnHist += parseFloat(item.churn)||0;
+      sumActiveStartHist += parseFloat(item.activeStart)||0;
+      hasChurnData = true;
+    }
+  }
+  const avgChurn = sumChurnHist/n;
+  const avgChurnPct = (hasChurnData && sumActiveStartHist>0) ? (sumChurnHist/sumActiveStartHist)*100 : null;
   const sumRow = hasAny ? `<tr style="background:var(--bg-2);border-top:2px solid var(--line)">
-      <td style="font-weight:700;color:var(--txt-dim);font-size:12.5px">ממוצע (${n} חודשים)</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--amber);direction:ltr;padding:0 12px">${h.totalBudget?money(h.totalBudget/n)+'₪':'—'}</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--blue);direction:ltr;padding:0 12px">${h.totalLeads?fmt(h.totalLeads/n):'—'}</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--green);direction:ltr;padding:0 12px">${h.totalCloses?fmt1(h.totalCloses/n):'—'}</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr;padding:0 12px">${h.setupAvg!=null?money(h.setupAvg)+'₪':'—'}</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr;padding:0 12px">${h.retainerTotalAvg!=null?money(h.retainerTotalAvg)+'₪':'—'}</td>
+      <td style="text-align:center;font-weight:700;color:var(--txt-dim);font-size:12.5px">ממוצע (${n} חודשים)</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--amber);direction:ltr">${h.totalBudget?money(h.totalBudget/n)+'₪':'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--blue);direction:ltr">${h.totalLeads?fmt(h.totalLeads/n):'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--green);direction:ltr">${h.totalCloses?fmt1(h.totalCloses/n):'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${h.setupAvg!=null?money(h.setupAvg)+'₪':'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${h.retainerTotalAvg!=null?money(h.retainerTotalAvg)+'₪':'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--red);direction:ltr">${hasChurnData?fmt1(avgChurn):'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--red);direction:ltr">${avgChurnPct!=null?fmt1(avgChurnPct)+'%':'—'}</td>
       <td style="font-size:11.5px;color:var(--txt-faint);direction:ltr;text-align:right;font-weight:500">${[
         h.costPerLead!=null?'מחיר ליד '+fmt1(h.costPerLead)+'₪':null,
         h.effConv!=null?'המרה '+fmt1(h.effConv)+'%':null,
@@ -2015,8 +2038,18 @@ function renderHistoryTable(){
     </tr>` : '';
   box.innerHTML=`
     <div style="overflow-x:auto">
-    <table class="kpi-table" style="min-width:760px">
-      <thead><tr><th>חודש</th><th>תקציב שיווק</th><th>לידים</th><th>סגירות</th><th>מחיר הקמה ממוצע</th><th>מחיר ריטיינר ממוצע</th><th>מחושב</th></tr></thead>
+    <table class="kpi-table" style="min-width:900px">
+      <thead><tr>
+        <th style="text-align:center">חודש</th>
+        <th style="text-align:center">תקציב שיווק</th>
+        <th style="text-align:center">לידים</th>
+        <th style="text-align:center">סגירות</th>
+        <th style="text-align:center">מחיר הקמה ממוצע</th>
+        <th style="text-align:center">מחיר ריטיינר ממוצע</th>
+        <th style="text-align:center">לקוחות שעזבו</th>
+        <th style="text-align:center">% עזיבה</th>
+        <th>מחושב</th>
+      </tr></thead>
       <tbody id="histAvgBar">${rows}${sumRow}</tbody>
     </table></div>`;
   autoSizeInputs();
@@ -2038,22 +2071,33 @@ function updateHistory(i,field,val){
   // עדכון התא של "מחושב" בשורה הספציפית
   const summaryCells=box.querySelectorAll('tbody tr td:last-child');
   if(summaryCells[i]) summaryCells[i].textContent=histRowSummary(state.history[i]);
-  // עדכון שורת ה"סה״כ / ממוצע" — האחרונה ב-tbody (אם קיימת)
+  // עדכון שורת הסיכום
   const h=historyAverages();
   const tbody=document.getElementById('histAvgBar');
   if(!tbody) return;
   const allRows=tbody.querySelectorAll('tr');
   const sumRow=allRows[allRows.length-1];
-  // נזהה את שורת הסיכום לפי אינדקס - יש state.history.length שורות + 1 (אם קיימת)
   if(allRows.length>state.history.length){
     const n = h.monthsAny || state.history.length || 1;
+    let sumChurnHist=0, sumActiveStartHist=0, hasChurnData=false;
+    for(const item of state.history){
+      if(item.churn!=null && item.activeStart>0){
+        sumChurnHist += parseFloat(item.churn)||0;
+        sumActiveStartHist += parseFloat(item.activeStart)||0;
+        hasChurnData = true;
+      }
+    }
+    const avgChurn = sumChurnHist/n;
+    const avgChurnPct = (hasChurnData && sumActiveStartHist>0) ? (sumChurnHist/sumActiveStartHist)*100 : null;
     sumRow.outerHTML=`<tr style="background:var(--bg-2);border-top:2px solid var(--line)">
-      <td style="font-weight:700;color:var(--txt-dim);font-size:12.5px">ממוצע (${n} חודשים)</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--amber);direction:ltr;padding:0 12px">${h.totalBudget?money(h.totalBudget/n)+'₪':'—'}</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--blue);direction:ltr;padding:0 12px">${h.totalLeads?fmt(h.totalLeads/n):'—'}</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--green);direction:ltr;padding:0 12px">${h.totalCloses?fmt1(h.totalCloses/n):'—'}</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr;padding:0 12px">${h.setupAvg!=null?money(h.setupAvg)+'₪':'—'}</td>
-      <td style="font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr;padding:0 12px">${h.retainerTotalAvg!=null?money(h.retainerTotalAvg)+'₪':'—'}</td>
+      <td style="text-align:center;font-weight:700;color:var(--txt-dim);font-size:12.5px">ממוצע (${n} חודשים)</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--amber);direction:ltr">${h.totalBudget?money(h.totalBudget/n)+'₪':'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--blue);direction:ltr">${h.totalLeads?fmt(h.totalLeads/n):'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--green);direction:ltr">${h.totalCloses?fmt1(h.totalCloses/n):'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${h.setupAvg!=null?money(h.setupAvg)+'₪':'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${h.retainerTotalAvg!=null?money(h.retainerTotalAvg)+'₪':'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--red);direction:ltr">${hasChurnData?fmt1(avgChurn):'—'}</td>
+      <td style="text-align:center;font-family:'Rubik';font-weight:700;color:var(--red);direction:ltr">${avgChurnPct!=null?fmt1(avgChurnPct)+'%':'—'}</td>
       <td style="font-size:11.5px;color:var(--txt-faint);direction:ltr;text-align:right;font-weight:500">${[
         h.costPerLead!=null?'מחיר ליד '+fmt1(h.costPerLead)+'₪':null,
         h.effConv!=null?'המרה '+fmt1(h.effConv)+'%':null,
@@ -2128,7 +2172,16 @@ function explainKey(key){return ({
   onboardCommPct:'נגזרת מהריטיינר הראשון של הלקוח', processingFeePct:'נגזרת מכל ההכנסה (הקמה + ריטיינרים)',
   activeClients:'בסיס הריטיינרים החודשי שלך', churnRate:'קובע את אורך החיים ואת קצב התחזית',
 })[key]||'';}
-function onSetting(input){ state[input.dataset.key]=parseFloat(input.value)||0; saveState(); }
+function onSetting(input){
+  state[input.dataset.key]=parseFloat(input.value)||0;
+  saveState();
+  // קיטון גופן אוטומטי לפי אורך המספר
+  const len=String(input.value||'').length;
+  if(len>=10) input.style.fontSize='11px';
+  else if(len>=8) input.style.fontSize='12px';
+  else if(len>=6) input.style.fontSize='13px';
+  else input.style.fontSize='';
+}
 
 /* ============================================================
    רכיבים
@@ -2263,6 +2316,9 @@ function applyMondayData(data){
       closes: m.closes||'',
       setupRev: m.setupAvg||'',
       retainerRev: m.retainerAvg||'',
+      churn: m.churn,                    // לקוחות שעזבו
+      activeStart: m.activeStartMonth,   // פעילים בתחילת החודש (לחישוב % עזיבה)
+      churnPct: (m.churn!=null && m.activeStartMonth>0) ? (m.churn/m.activeStartMonth)*100 : null,
     }));
   }
   // === נתוני actual (החודש בפועל) ===
@@ -2297,22 +2353,23 @@ function lastMonthBaseline(){
   };
 }
 
-/* מחשב את נתוני הליבה לפי mondayMonthsBack — ממוצע משוקלל לפי נפח */
+/* מחשב את נתוני הליבה לפי mondayMonthsBack — ממוצע משוקלל לפי נפח
+   משתמש בעמודות החדשות והמדויקות מהמאנדיי */
 function recomputeCoreFromMonday(){
   const data=state.mondayRaw;
   if(!data || !data.current) return;
-  // ניצור מערך של כל החודשים הרלוונטיים (האחרון = current, אחר כך history בסדר מהאחרון לראשון)
-  const allMonths=[data.current, ...(data.history||[])]; // אחרון לראשון
+  // מערך החודשים הרלוונטיים לחישוב (current ראשון, אחר כך history)
+  const allMonths=[data.current, ...(data.history||[])];
   const months=allMonths.slice(0, Math.max(1, state.mondayMonthsBack||1));
   // === ממוצעים משוקללים ===
   let sumBudget=0, sumLeads=0, sumCloses=0, sumCalls=0;
   let sumSetupRev=0, sumRetainerRev=0;
-  let sumActiveClients=0, monthsWithActive=0;
-  let sumChurnHistorical=0, sumActiveHistorical=0;  // לחישוב churnRate - על אותם חודשים שנבחרו
-  // לאחוזים סטטיים נשתמש בחודש האחרון שיש בו ערך
+  // לחישוב ריטיינר ממוצע מדויק: משתמשים ב-retainerAvgActive * activeEndMonth, ממוצע משוקלל
+  let sumActiveEnd=0, sumWeightedRetainer=0, monthsWithActiveAndRet=0;
+  // לחישוב שחיקה מדויק: סך החודשים שעזבו ÷ סך הפעילים בתחילת החודש (לפי הנוסחה שלך)
+  let sumChurn=0, sumActiveStart=0;
+  // אחוזים סטטיים - מהחודש האחרון שיש בו ערך
   let salesCommPct=null, processingFeePct=null, onboardCommPct=null, fixedCosts=null;
-  // לקוחות פעילים נוכחיים - תמיד מהחודש האחרון (current)
-  const currentActive = data.current.activeClients;
   for(const m of months){
     if(m.budget!=null) sumBudget+=m.budget;
     if(m.totalLeads!=null) sumLeads+=m.totalLeads;
@@ -2320,10 +2377,16 @@ function recomputeCoreFromMonday(){
     if(m.callsMade!=null) sumCalls+=m.callsMade;
     if(m.setupTotal!=null) sumSetupRev+=m.setupTotal;
     if(m.retainerTotal!=null) sumRetainerRev+=m.retainerTotal;
-    if(m.activeClients!=null){ sumActiveClients+=m.activeClients; monthsWithActive++; }
-    if(m.churn!=null && m.activeClients>0){
-      sumChurnHistorical+=m.churn;
-      sumActiveHistorical+=m.activeClients;
+    // ריטיינר ממוצע משוקלל לפי כמות הפעילים בסוף החודש
+    if(m.retainerAvgActive!=null && m.activeEndMonth>0){
+      sumWeightedRetainer += m.retainerAvgActive * m.activeEndMonth;
+      sumActiveEnd += m.activeEndMonth;
+      monthsWithActiveAndRet++;
+    }
+    // שחיקה: עזיבות ÷ פעילים בתחילת חודש
+    if(m.churn!=null && m.activeStartMonth>0){
+      sumChurn += m.churn;
+      sumActiveStart += m.activeStartMonth;
     }
     if(salesCommPct==null && m.salesCommPct!=null) salesCommPct=m.salesCommPct;
     if(processingFeePct==null && m.processingFeePct!=null) processingFeePct=m.processingFeePct;
@@ -2332,35 +2395,38 @@ function recomputeCoreFromMonday(){
   }
   // === חישוב הנתונים המשוקללים ===
   const setIfNum=(key,val)=>{ if(val!=null && !isNaN(val) && isFinite(val)) state[key]=val; };
+  // מחיר ליד = סך התקציבים ÷ סך הלידים
   if(sumLeads>0) setIfNum('costPerLead', sumBudget/sumLeads);
+  // אחוז סגירה = סך הסגירות ÷ סך השיחות שענו
   if(sumCalls>0) setIfNum('closeRate', (sumCloses/sumCalls)*100);
+  // אחוז מענה = סך השיחות ÷ סך הלידים
   if(sumLeads>0) setIfNum('answerRate', Math.min((sumCalls/sumLeads)*100, 100));
+  // מחיר הקמה ממוצע = סך ההקמות ÷ סך הסגירות
   if(sumCloses>0) setIfNum('setupFee', sumSetupRev/sumCloses);
-  if(monthsWithActive>0 && sumActiveClients>0) setIfNum('retainer', sumRetainerRev/sumActiveClients);
-  else if(sumCloses>0) setIfNum('retainer', sumRetainerRev/sumCloses);
+  // ריטיינר ממוצע מדויק - לפי הנתון החדש (retainerAvgActive * activeEndMonth)
+  if(monthsWithActiveAndRet>0 && sumActiveEnd>0){
+    setIfNum('retainer', sumWeightedRetainer/sumActiveEnd);
+  } else if(sumCloses>0) {
+    setIfNum('retainer', sumRetainerRev/sumCloses);  // fallback ישן
+  }
   setIfNum('salesCommPct', salesCommPct);
   setIfNum('processingFeePct', processingFeePct);
   setIfNum('onboardCommPct', onboardCommPct);
   setIfNum('fixedCosts', fixedCosts);
-  // === הנתונים החדשים ===
-  // לקוחות פעילים כעת = פעילים מהחודש הקודם + חדשים שגויסו עד היום החודש - שחיקה
-  // (כי החודש הנוכחי עדיין לא נגמר, ה-activeClients של current לא משקף את המצב האמיתי כרגע)
-  const prevMonth = (data.history && data.history.length>0) ? data.history[0] : null;
-  if(prevMonth && prevMonth.activeClients!=null){
-    const prevActive = prevMonth.activeClients;
-    const newThisMonth = data.current.closes || 0;
-    // שחיקה משוערת על הבסיס הקודם, באחוזים שחישבנו
-    const churnPct = sumActiveHistorical>0 ? sumChurnHistorical/sumActiveHistorical : 0;
-    const expectedChurn = prevActive * churnPct;
-    const currentActive = prevActive + newThisMonth - expectedChurn;
-    setIfNum('activeClients', Math.max(0, currentActive));
-  } else if(currentActive!=null){
-    // נפילה לערך מהמאנדיי אם אין חודש קודם
-    setIfNum('activeClients', currentActive);
+  // === לקוחות פעילים - לקוחים ישירות מהמאנדיי (העמודה החדשה activeEndMonth)
+  // זה הנתון המדויק ביותר - מה היה בסוף החודש (או עד היום עבור החודש הנוכחי)
+  if(data.current.activeEndMonth!=null){
+    setIfNum('activeClients', data.current.activeEndMonth);
+  } else if(data.current.activeClients!=null) {
+    // fallback - תאימות אחורה
+    setIfNum('activeClients', data.current.activeClients);
   }
-  if(sumActiveHistorical>0){
-    const churn = (sumChurnHistorical/sumActiveHistorical)*100;
+  // === אחוז שחיקה מדויק - לפי הנוסחה הנכונה ===
+  // churn ÷ activeStartMonth, על פני החודשים שנבחרו
+  if(sumActiveStart>0){
+    const churn = (sumChurn/sumActiveStart)*100;
     setIfNum('churnRate', churn);
+    // avgMonths נגזר מ-churnRate
     if(churn>0) setIfNum('avgMonths', 100/churn);
   }
 }
