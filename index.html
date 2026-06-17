@@ -279,6 +279,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
         יעד רווח תפעולי חודשי
       </div>
       <div class="gb-field"><span>₪</span><input type="number" id="globalGoal" oninput="setGlobalGoal(this.value)"></div>
+      <div id="goalHint"></div>
     </div>
     <div id="navLinks"></div>
     <div class="nav-foot">
@@ -537,8 +538,6 @@ function syncGoalInputs(){
   const bl=lastMonthBaseline();
   document.querySelectorAll('#baselineHint, #baselineHintM').forEach(el=>{
     if(!bl || bl.operatingProfit==null){ el.innerHTML=''; return; }
-    const diff = state.goalProfit - bl.operatingProfit;
-    const pctUp = bl.operatingProfit>0 ? (diff/bl.operatingProfit)*100 : null;
     const color = bl.operatingProfit>=0 ? 'var(--accent)' : 'var(--red)';
     el.innerHTML=`<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line-soft)">
       <div class="gb-lbl">
@@ -549,7 +548,17 @@ function syncGoalInputs(){
         <span style="font-size:11.5px;color:var(--txt-faint)">${bl.monthName}</span>
         <b style="font-family:'Rubik';font-weight:700;font-size:16px;color:${color};direction:ltr">${money(bl.operatingProfit)}₪</b>
       </div>
-      ${pctUp!=null&&Math.abs(diff)>=1?`<div style="margin-top:6px;color:var(--txt-faint);font-size:11px;text-align:center">היעד גבוה ב-${pctUp>=0?'+':''}${fmt1(pctUp)}% מהבייסליין</div>`:''}
+    </div>`;
+  });
+  // עדכון הערות מתחת ליעד עצמו - גם ב-sidebar וגם במובייל
+  document.querySelectorAll('#goalHint, #goalHintM').forEach(el=>{
+    if(!bl || bl.operatingProfit==null){ el.innerHTML=''; return; }
+    const diff = state.goalProfit - bl.operatingProfit;
+    const pctUp = bl.operatingProfit>0 ? (diff/bl.operatingProfit)*100 : null;
+    const recommended = bl.operatingProfit>0 ? bl.operatingProfit*1.15 : null;
+    el.innerHTML=`<div style="margin-top:8px;font-size:11px;color:var(--txt-faint);text-align:center;line-height:1.6">
+      ${pctUp!=null&&Math.abs(diff)>=1?`<div>היעד ${pctUp>=0?'גבוה':'נמוך'} ב-${pctUp>=0?'+':''}${fmt1(pctUp)}% מהבייסליין</div>`:''}
+      ${recommended!=null?`<div style="margin-top:3px;color:var(--accent);font-size:10.5px">💡 יעד ריאלי מומלץ (בייסליין +15%): <b style="font-family:'Rubik';direction:ltr">${money(recommended)}₪</b></div>`:''}
     </div>`;
   });
 }
