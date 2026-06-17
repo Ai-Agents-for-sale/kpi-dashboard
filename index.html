@@ -739,7 +739,7 @@ function openGuide(){
   if(existing){ existing.remove(); document.body.style.overflow=''; return; }
   const panel=document.createElement('div');
   panel.id='guidePanel';
-  panel.style.cssText='position:fixed;top:0;left:0;width:min(440px,90vw);height:100vh;background:var(--bg-1);border-right:1px solid var(--line);box-shadow:4px 0 20px rgba(0,0,0,.3);z-index:9999;overflow-y:auto;padding:20px;direction:rtl';
+  panel.style.cssText='position:fixed;top:0;left:0;width:min(440px,90vw);height:100vh;background:#1a1d2e;border-right:1px solid var(--line);box-shadow:4px 0 24px rgba(0,0,0,.5);z-index:9999;overflow-y:auto;padding:20px;direction:rtl';
   panel.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--line-soft)">
       <h2 style="margin:0;font-size:18px;color:var(--accent)">${g.title}</h2>
@@ -791,27 +791,29 @@ function syncGoalInputs(){
     const diff = state.goalProfit - bl.operatingProfit;
     const pctUp = bl.operatingProfit>0 ? (diff/bl.operatingProfit)*100 : null;
     // === יעד מומלץ חכם ===
-    // לוקח בחשבון: רווח טבעי מהבסיס הנוכחי + תרומת חדשים מהחודש שעבר × 1.15 שיפור
+    // לוקח בחשבון: רווח טבעי מהבסיס הנוכחי + תרומת חדשים × 1.15 שיפור
+    // בטוח לא נמוך מ-1.15 × רווח החודש שעבר (כי הבסיס שלנו רק גדל)
     let recommended = null;
     if(bl.operatingProfit>0 && state.activeClients>0){
       const c = compute();
       // רווח טבעי החודש אם לא נגייס אף לקוח חדש
       const naturalProfit = monthlyProfitFromNewClients(0).monthlyOperating;
-      // תרומת חדשים בחודש שעבר = הרווח שהיה מינוס מה שהיה מהבסיס הישן
-      // לא יודעים את הבסיס הישן, אז נשתמש בקירוב: חדשים בפועל בחודש שעבר * רווח ללקוח חדש
-      // עם 15% שיפור על הביצועים
-      const prevNewClients = bl.closes || 0; // החדשים שגויסו חודש שעבר
-      const profitPerNew = (state.setupFee + state.retainer)*(1-c.procPct) - state.setupFee*c.commPct - state.retainer*c.onbCommPct;
+      // תרומת חדשים אם נחזור על ביצוע חודש שעבר - לפי המחיר העדכני
+      const prevNewClients = bl.closes || 0;
+      const profitPerNew = (state.setupFee + c.retainerForNew)*(1-c.procPct) - state.setupFee*c.commPct - c.retainerForNew*c.onbCommPct;
       const prevNewClientsContribution = prevNewClients * profitPerNew;
-      // היעד המומלץ = רווח טבעי + תרומת חדשים עם 15% שיפור
-      recommended = naturalProfit + prevNewClientsContribution * 1.15;
+      // חישוב 1: רווח טבעי + תרומת חדשים עם 15% שיפור
+      const calc1 = naturalProfit + prevNewClientsContribution * 1.15;
+      // חישוב 2: 15% מעל הרווח של חודש שעבר (רף תחתון - הבסיס גדל אז זה לפחות יהיה זמין)
+      const calc2 = bl.operatingProfit * 1.15;
+      // היעד המומלץ = הגבוה מבין השניים
+      recommended = Math.max(calc1, calc2);
     } else if(bl.operatingProfit>0){
-      // אם אין activeClients, נופלים לחישוב הישן
       recommended = bl.operatingProfit*1.15;
     }
     el.innerHTML=`<div style="margin-top:8px;font-size:11px;color:var(--txt-faint);text-align:center;line-height:1.6">
       ${pctUp!=null&&Math.abs(diff)>=1?`<div>היעד ${pctUp>=0?'גבוה':'נמוך'} ב-${pctUp>=0?'+':''}${fmt1(pctUp)}% מהבייסליין</div>`:''}
-      ${recommended!=null?`<div style="margin-top:3px;color:var(--accent);font-size:10.5px">💡 יעד ריאלי מומלץ: <b style="font-family:'Rubik';direction:ltr">${money(recommended)}₪</b><div style="font-size:9.5px;color:var(--txt-faint);margin-top:1px">בסיס נוכחי + 15% שיפור על הגיוס</div></div>`:''}
+      ${recommended!=null?`<div style="margin-top:3px;color:var(--accent);font-size:10.5px">💡 יעד ריאלי מומלץ ${help('recommendedGoal')}: <b style="font-family:'Rubik';direction:ltr">${money(recommended)}₪</b><div style="font-size:9.5px;color:var(--txt-faint);margin-top:1px">בסיס נוכחי + 15% שיפור</div></div>`:''}
     </div>`;
   });
 }
@@ -832,17 +834,20 @@ function textHash(str){
   return 'h'+Math.abs(h).toString(36);
 }
 
-/* מאפשר עריכה ידנית של כל טקסט סטטי באפליקציה */
+/* מאפשר עריכה ידנית של טקסטים סטטיים — כותרות והסברים בלבד, לא תוצאות חישוב */
 function makeTextsEditable(){
   if(!state.customTexts) state.customTexts={};
   setTimeout(()=>{
-    const sel = '#content h1, #content h2, #content h3, #content .page-head p, #content .card-h .sub, #content .card-h span.sub, #content .card-h span.tag, #content .hint, #content .notice div, #content small, #content label.hint, #content > .notice div';
+    // רק כותרות והסברים סטטיים — לא hint/sub שמכילות תוצאות חישוב
+    const sel = '#content h1, #content h2, #content h3, #content .page-head p, #content .card-h h3';
     document.querySelectorAll(sel).forEach(el=>{
-      // דלג על אלמנטים שמכילים אלמנטים אינטרקטיביים אחרים
       if(el.querySelector('input, button, select, .help, [data-editable]')) return;
       if(el.dataset.editable) return;
       const original = el.innerHTML.trim();
       if(!original || original.length<2) return;
+      // דלג על טקסטים שמכילים מספרים (כנראה תוצאת חישוב)
+      // ספרות עם פסיק/נקודה/אחוז/₪
+      if(/\d[,\d]*[.\d]*\s*[%₪]|\d{3,}|\d+\.\d/.test(el.textContent)) return;
       const key = textHash(original);
       if(state.customTexts[key]) el.innerHTML = state.customTexts[key];
       el.dataset.editable = 'true';
@@ -962,7 +967,7 @@ function renderDashboard(){
     </div>
   </div>
   <div class="card">
-    <div class="card-h"><h3>${T('goal_path','מסלול ליעד הרווח שלך')}</h3><span class="sub">יעד: ${money(state.goalProfit)} ₪ רווח תפעולי</span></div>
+    <div class="card-h"><h3>${T('goal_path','מסלול ליעד הרווח שלך')} ${help('clientsNeeded')}</h3><span class="sub">יעד: ${money(state.goalProfit)} ₪ רווח תפעולי</span></div>
     <div class="grid cols-4">
       ${miniMetric('לקוחות חדשים',fmt1(plan.clients),'users','green',fmt1(plan.clients/state.daysMonth)+' ביום','(יעד רווח + הוצאות קבועות − ריטיינר מבסיס) ÷ רווח ללקוח חדש')}
       ${miniMetric(L('bd_leads'),fmt(plan.leads),'lead','blue',fmt1(plan.leads/state.daysMonth)+' ביום','לקוחות נדרשים ÷ אחוז המרה אפקטיבי ('+fmt1(c.effConv*100)+'%)')}
@@ -986,13 +991,13 @@ function renderGoals(){
   <div class="notice">${svg('info')}<div>היעדים הם <b>חודשיים</b>. הפירוק היומי מחלק ל-${state.daysMonth} ימי חודש (ניתן לשינוי בנתוני בסיס). אפשר לערוך כל שם שדה בלחיצה עליו.</div></div>
   <div class="split" style="margin-bottom:16px">
     <div class="card">
-      <div class="card-h"><h3>${T('from_profit','מהרווח → לכל השאר')}</h3><span class="tag green">יעד ראשי</span></div>
+      <div class="card-h"><h3>${T('from_profit','מהרווח → לכל השאר')} ${help('clientsNeeded')}</h3><span class="tag green">יעד ראשי</span></div>
       <label class="hint" style="display:block;margin-bottom:8px">יעד רווח תפעולי חודשי</label>
       <div class="field w-md"><span class="affix">₪</span><input type="number" id="gP" value="${state.goalProfit}" oninput="onGoalProfit(this.value)"></div>
       <div id="gPres" style="margin-top:16px"></div>
     </div>
     <div class="card">
-      <div class="card-h"><h3>${T('from_rev','מהמחזור → לכל השאר')}</h3><span class="tag blue">חישוב הפוך</span></div>
+      <div class="card-h"><h3>${T('from_rev','מהמחזור → לכל השאר')} ${help('clientsNeeded')}</h3><span class="tag blue">חישוב הפוך</span></div>
       <label class="hint" style="display:block;margin-bottom:8px">יעד מחזור חודשי</label>
       <div class="field w-md"><span class="affix">₪</span><input type="number" id="gR" value="${Math.round(revenueForProfit(state.goalProfit))}" oninput="onGoalRev(this.value)"></div>
       <div id="gRres" style="margin-top:16px"></div>
@@ -1421,7 +1426,7 @@ function renderSales(){
 
   <div class="split" style="margin-bottom:16px">
     <div class="card">
-      <div class="card-h"><h3>${T('team_equal','חלוקת היעד שווה בין כל אנשי המכירות')}</h3><span class="tag blue">יעד סטטי</span></div>
+      <div class="card-h"><h3>${T('team_equal','חלוקת היעד שווה בין כל אנשי המכירות')} ${help('clientsNeeded')}</h3><span class="tag blue">יעד סטטי</span></div>
       <table class="kpi-table" style="margin-bottom:6px"><tbody>
         ${quickEdit('teamSize','מספר אנשי מכירות','','users','green')}
       </tbody></table>
@@ -2506,6 +2511,25 @@ const HELP={
   recommendations:{t:'איך נבנות ההמלצות',body:`כשהקצב הנוכחי לא יביא ליעד, המערכת מחשבת מה צריך כדי לסגור את הפער <b>מהיום עד סוף החודש</b>.<br><br>כל המלצה לבד תסגור את הפער:<br>• להגביר קצב סגירות ביום ביחס לימים שנותרו.<br>• להעלות אחוז סגירה על השיחות שעוד יבואו.<br>• להעלות מחיר הקמה ללקוחות חדשים מהיום.<br>• להעלות ריטיינר ללקוחות חדשים שיצטרפו מהיום.<br><br>אפשר גם לשלב מהלכים.`,f:'פער ÷ השפעת מהלך ליחידה = שיפור נדרש'},
   goalRec:{t:'יעד ריאלי מומלץ',body:`היעד החודשי המומלץ לוקח בחשבון שלא מתחילים מ-0:<br><br>1. <b>רווח טבעי מהבסיס הנוכחי</b> — מה שהבסיס הקיים מכניס בכל חודש פחות הוצאות קבועות. זה הרווח "אם לא נגייס אף לקוח".<br><br>2. <b>תרומת לקוחות חדשים</b> — אם תחזור על ביצוע הגיוס של חודש שעבר (אותה כמות חדשים), בכמה הם יוסיפו לרווח החודש?<br><br>3. <b>×1.15 לשיפור</b> — נשאף ל-15% שיפור על הביצוע הקודם.`,f:'רווח טבעי + (חדשים בחודש שעבר × רווח לחדש × 1.15)'},
   forecast:{t:'תחזית 12 חודשים',body:`איך הבסיס יתפתח קדימה אם תגייס את כמות הלקוחות הנדרשת כל חודש.<br><br>כל חודש מצטרפים חדשים ועוזבים חלק מהקיימים (לפי אחוז השחיקה). הבסיס גדל לאט-לאט, וכך גם הרווח החודשי.<br><br><b>חשוב:</b> הבסיס המקורי משלם לפי המחיר הישן (ריטיינר של פעילים). חדשים שמצטרפים משלמים לפי "ריטיינר ללקוחות חדשים" וממשיכים לשלם זאת לאורך כל החיים שלהם.`,f:'סוף חודש = תחילת חודש + חדשים − עוזבים'},
+  clientsNeeded:{t:'איך מחושבת כמות הלקוחות שצריך ליעד',body:`<b>שלב 1 — רווח חודשי מלקוח חדש אחד:</b><br>
+מהלקוח אנחנו מקבלים: הקמה + ריטיינר ראשון<br>
+מנכים ממנו: עמלת מכירה (% מההקמה) + עמלת אונבורדינג (% מהריטיינר) + סליקה (% מכל ההכנסה) + עלות שיווק לגיוס שלו<br><br>
+<b>שלב 2 — רווח מהבסיס הקיים:</b><br>
+לקוחות פעילים × (1 − שחיקה/2) × ריטיינר חודשי של פעילים, פחות סליקה.<br>
+זה מה שמגיע אוטומטית בלי גיוס.<br><br>
+<b>שלב 3 — חישוב הפער:</b><br>
+פער = יעד רווח + הוצאות קבועות − רווח מהבסיס<br><br>
+<b>שלב 4 — לקוחות נדרשים:</b><br>
+פער ÷ רווח חודשי מלקוח חדש<br><br>
+<b>אם הבסיס מכסה את היעד</b> — התוצאה היא 0 ומופיעה הודעה שכל לקוח חדש = רווח נטו.`,f:'(יעד + הוצאות קבועות − רווח מבסיס קיים) ÷ רווח חודשי מלקוח חדש'},
+  recommendedGoal:{t:'איך מחושב היעד הריאלי המומלץ',body:`<b>שלב 1 — רווח טבעי מהבסיס:</b><br>
+מה שהבסיס שלך מכניס כל חודש בלי לגייס אף לקוח: לקוחות פעילים × (1 − שחיקה/2) × ריטיינר, פחות סליקה, פחות הוצאות קבועות.<br><br>
+<b>שלב 2 — תרומת חדשים בחודש שעבר:</b><br>
+כמה לקוחות חדשים גייסת בחודש שעבר × רווח חודשי מלקוח חדש (במחיר הריטיינר העדכני).<br><br>
+<b>שלב 3 — שיפור של 15%:</b><br>
+מכפילים את תרומת החדשים ב-1.15 — כדי לשאוף ל-15% גידול על הביצוע הקודם.<br><br>
+<b>הנוסחה הסופית:</b><br>
+יעד = רווח טבעי + (תרומת חדשים × 1.15)`,f:'רווח טבעי מהבסיס + (חדשים בחודש שעבר × רווח לחדש × 1.15)'},
 };
 function help(key){return `<span class="help" onclick="openHelp('${key}')">?</span>`;}
 function openHelp(key){
