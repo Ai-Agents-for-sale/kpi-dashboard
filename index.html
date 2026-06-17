@@ -400,7 +400,7 @@ function compute(s = state){
 
   const acqCost  = leadsPerClient * s.costPerLead;             // עלות שיווק ללקוח
   const commCost = s.setupFee * commPct;                       // עמלת מכירה (% מהקמה)
-  const onbCommCost = totalRetainer * onbCommPct;              // עמלת אונבורדינג (% מסך ריטיינרים)
+  const onbCommCost = state.retainer * onbCommPct;              // עמלת אונבורדינג (% מהריטיינר הראשון בלבד)
   const procCost = revPerClient * procPct;                     // עמלת סליקה (% מכל ההכנסה)
   const onbHourlyCost = onboardHrsPerClient * s.onboardCostHr; // עלות שעת אונבורדינג (אם רלוונטי)
   const varCostPerClient = acqCost + commCost + onbCommCost + procCost + onbHourlyCost;
@@ -606,7 +606,7 @@ function renderDashboard(){
       <div class="card-h"><h3>${T('client_econ','הכלכלה של לקוח בודד')}</h3><span class="sub">לכל לקוח חדש</span></div>
       <div class="statlist">
         ${slRow('green','הכנסה כוללת מהלקוח',money(c.revPerClient)+' ₪')}
-        ${slRow('blue',L('costPerLead')+' ('+fmt1(c.leadsPerClient)+' לידים)','−'+money(c.acqCost)+' ₪')}
+        ${slRow('blue','עלות גיוס לקוח משיווק ('+fmt1(c.leadsPerClient)+' לידים)','−'+money(c.acqCost)+' ₪')}
         ${slRow('amber','עמלת מכירות ('+state.salesCommPct+'%)','−'+money(c.commCost)+' ₪')}
         ${slRow('red','אונבורדינג ('+state.onboardMin+' דק׳ + עמלה)','−'+money(c.onbCommCost+c.onbHourlyCost)+' ₪')}
         ${slRow('red','עמלת סליקה ('+state.processingFeePct+'%)','−'+money(c.procCost)+' ₪')}
@@ -1402,13 +1402,14 @@ function updateProfitMoves(){
   // 4) +10 ₪ במחיר הקמה: dProfit ≈ clients * 10 * (1 - commPct - procPct)
   // (כי כל ₪ נוסף בהקמה → +1 הכנסה, אבל +commPct בעמלת מכירה ו-procPct בסליקה)
   const roi_setupPer10 = currentClients * 10 * (1 - c.commPct - c.procPct);
-  // 5) +1 חודש שימור: dProfit ≈ clients * retainer * (1 - procPct - onbCommPct)
-  // כי כל חודש נוסף = retainer הכנסה נוסף ללקוח, פחות סליקה ועמלת אונבורדינג שמחושבת מסך הריטיינרים
-  const roi_monthPerUnit = currentClients * s.retainer * (1 - c.procPct - c.onbCommPct);
+  // 5) +1 חודש שימור: dProfit ≈ clients * retainer * (1 - procPct)
+  // כי כל חודש נוסף = retainer הכנסה נוסף ללקוח, פחות סליקה. אונבורדינג כבר שולם בחודש הראשון
+  const roi_monthPerUnit = currentClients * s.retainer * (1 - c.procPct);
   // 6) הפחתת -1 ₪ במחיר ליד: dProfit ≈ +leads (חוסכים על כל ליד)
   const roi_cplPer1 = currentLeads * 1;
-  // 7) +10 ₪ בריטיינר חודשי: כל לקוח משלם +10 × חודשי שימור, פחות עמלת אונבורדינג (% מהריטיינרים) ופחות סליקה
-  const roi_retainerPer10 = currentClients * 10 * s.avgMonths * (1 - c.onbCommPct - c.procPct);
+  // 7) +10 ₪ בריטיינר חודשי: כל לקוח משלם +10 × חודשי שימור.
+  // חודש ראשון: פחות עמלת אונבורדינג ופחות סליקה. שאר החודשים: רק פחות סליקה
+  const roi_retainerPer10 = currentClients * 10 * ((1 - c.onbCommPct - c.procPct) + (s.avgMonths - 1) * (1 - c.procPct));
   // 8) -1% בעמלת מכירות: חוסכים setupFee*0.01 על כל לקוח
   const roi_commPerPP = currentClients * s.setupFee * 0.01;
 
@@ -1448,11 +1449,11 @@ function updateProfitMoves(){
       explain:'כל ₪ נוסף בהקמה הוא הכנסה ישירה לכל לקוח חדש, פחות עמלת המכירות והסליקה שגדלות יחד איתו',
       formula:`${fmt1(currentClients)} לקוחות × 10₪ × (1 − ${s.salesCommPct}% עמלה − ${s.processingFeePct}% סליקה)`},
     {name:'תעלה ריטיינר חודשי', unit:'10 ₪', effect: roi_retainerPer10, color:'green', icon:'repeat',
-      explain:'כל ₪ נוסף בריטיינר מתרבה במספר חודשי השימור של הלקוח, פחות עמלת אונבורדינג וסליקה',
-      formula:`${fmt1(currentClients)} לקוחות × 10₪ × ${s.avgMonths} חודשים × (1 − ${s.onboardCommPct}% אונבורדינג − ${s.processingFeePct}% סליקה)`},
+      explain:'כל ₪ נוסף בריטיינר מתרבה במספר חודשי השימור. עמלת אונבורדינג רק על החודש הראשון',
+      formula:`${fmt1(currentClients)} לקוחות × 10₪ × (חודש 1: 1−${s.onboardCommPct}%−${s.processingFeePct}% + ${s.avgMonths-1} חודשים: 1−${s.processingFeePct}%)`},
     {name:'תאריך שימור', unit:'חודש', effect: roi_monthPerUnit, color:'green', icon:'repeat',
-      explain:'כל חודש נוסף שלקוח נשאר = ריטיינר אחד נוסף שמתקבל ממנו (פחות עמלות שמחושבות אחוז)',
-      formula:`${fmt1(currentClients)} לקוחות × ${money(s.retainer)}₪ ריטיינר × (1 − סליקה − אונבורדינג)`},
+      explain:'כל חודש נוסף שלקוח נשאר = ריטיינר אחד נוסף. עמלת אונבורדינג כבר שולמה בחודש הראשון',
+      formula:`${fmt1(currentClients)} לקוחות × ${money(s.retainer)}₪ ריטיינר × (1 − ${s.processingFeePct}% סליקה)`},
     {name:'תוריד עמלת מכירות', unit:'אחוז', effect: roi_commPerPP, color:'amber', icon:'percent',
       explain:'הורדה של 1% בעמלה = חיסכון של 1% ממחיר ההקמה על כל לקוח חדש',
       formula:`${fmt1(currentClients)} לקוחות × ${money(s.setupFee)}₪ הקמה × 1%`},
@@ -1570,13 +1571,15 @@ function updateProfitMoves(){
     targets.push({name:'תעלה מחיר הקמה', from:money(s.setupFee)+'₪', to:money(s.setupFee+dSetup)+'₪', delta:'+'+money(dSetup)+'₪', unit:'מחיר הקמה', color:'amber', icon:'wallet'});
   }
   // ====== ריטיינר חודשי ======
-  const retainerSlope = currentClients*s.avgMonths*(1-c.onbCommPct-c.procPct);
+  // חודש 1: ריטיינר * (1 - onbComm - proc), שאר החודשים: ריטיינר * (1 - proc)
+  const retainerSlope = currentClients * ((1 - c.onbCommPct - c.procPct) + (s.avgMonths - 1) * (1 - c.procPct));
   if(retainerSlope>0){
     const dRet=profitGap/retainerSlope;
     targets.push({name:'תעלה ריטיינר חודשי', from:money(s.retainer)+'₪', to:money(s.retainer+dRet)+'₪', delta:'+'+money(dRet)+'₪', unit:'ריטיינר חודשי', color:'green', icon:'repeat'});
   }
   // ====== חודשי שימור ======
-  const monthSlope = currentClients*s.retainer*(1-c.procPct-c.onbCommPct);
+  // כל חודש נוסף = רק ריטיינר * (1 - proc), בלי אונבורדינג כי כבר שולם
+  const monthSlope = currentClients*s.retainer*(1-c.procPct);
   if(monthSlope>0){
     const dMonths=profitGap/monthSlope;
     targets.push({name:'תאריך שימור', from:fmt1(s.avgMonths)+' חוד׳', to:fmt1(s.avgMonths+dMonths)+' חוד׳', delta:'+'+fmt1(dMonths)+' חודשים', unit:'חודשי שימור', color:'green', icon:'repeat'});
