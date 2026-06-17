@@ -597,7 +597,7 @@ function renderDashboard(){
     <p>תמונת מצב חיה של הכלכלה ליחידת לקוח. כל שינוי בנתוני הבסיס מתעדכן כאן מיידית.</p></div>
   <div class="grid cols-4" style="margin-bottom:16px">
     ${kpiTile('הכנסה ללקוח (LTV)','wallet','green',money(c.revPerClient),'₪','הקמה + '+state.avgMonths+' ריטיינרים','ltv')}
-    ${kpiTile('עלות גיוס (CAC)','target','amber',money(c.cac),'₪','שיווק '+fmt(c.acqCost)+' + עמלה '+fmt(c.commCost),'cac')}
+    ${kpiTile('עלות גיוס (CAC)','target','amber',money(c.cac),'₪','שיווק '+fmt(c.acqCost)+' + עמלה '+fmt(c.commCost)+' + אונבורדינג '+fmt(c.onbCommCost)+' + סליקה '+fmt(c.procCost),'cac')}
     ${kpiTile('רווח גולמי ללקוח','trend','green',money(c.grossPerClient),'₪',fmt1(c.grossMarginPct)+'% רווחיות','gross')}
     ${kpiTile('יחס LTV / CAC','flag',c.ltvCacRatio>=3?'green':(c.ltvCacRatio>=1?'amber':'red'),fmt1(c.ltvCacRatio)+'x','',c.ltvCacRatio>=3?'בריא מאוד':(c.ltvCacRatio>=1?'רווחי':'הפסד'),'ltvcac')}
   </div>
