@@ -823,6 +823,10 @@ function syncGoalInputs(){
   const capMonth=cc.callsPerMonthPerRep*teamSize;
   const maxClients = cc.callsPerClient>0 ? capMonth/cc.callsPerClient : 0;
   const maxOperating = monthlyProfitFromNewClients(maxClients).monthlyOperating;
+  // מקסימלי + כל ההקמה: הוספת רווח מכל לקוחות ההקמה הזמינים
+  const setupClientsCount = state.setupClients || 0;
+  const profitFromAllSetup = setupClientsCount * profitFromOneSetupClient();
+  const maxOperatingWithSetup = maxOperating + profitFromAllSetup;
   // חישוב מומלץ
   let recommended = null;
   if(bl && bl.operatingProfit>0 && state.activeClients>0){
@@ -849,10 +853,15 @@ function syncGoalInputs(){
       </div>` : '';
     const maxRow = `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:8px;gap:8px;margin-top:6px">
-        <span style="font-size:11px;color:var(--txt-faint)">יעד מקסימלי ${help('maxGoal')}</span>
+        <span style="font-size:11px;color:var(--txt-faint)">יעד מקסימלי ${help('maxGoal')}<br><span style="font-size:9px">על סמך לקוחות חדשים בלבד</span></span>
         <b style="font-family:'Rubik';font-weight:700;font-size:14px;color:var(--amber);direction:ltr">${money(maxOperating)}₪</b>
       </div>`;
-    const allRows = blRow+recRow+maxRow;
+    const maxWithSetupRow = (setupClientsCount>0) ? `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:8px;gap:8px;margin-top:6px">
+        <span style="font-size:11px;color:var(--txt-faint)">יעד מקסימלי + הקמה<br><span style="font-size:9px">חדשים + כל ${setupClientsCount} בהקמה</span></span>
+        <b style="font-family:'Rubik';font-weight:700;font-size:14px;color:var(--amber);direction:ltr">${money(maxOperatingWithSetup)}₪</b>
+      </div>` : '';
+    const allRows = blRow+recRow+maxRow+maxWithSetupRow;
     el.innerHTML = allRows ? `<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line-soft)">
       <div style="font-size:10.5px;color:var(--txt-faint);text-align:center;margin-bottom:8px;letter-spacing:0.5px;text-transform:uppercase">רווח תפעולי חודשי</div>
       ${allRows}
@@ -1215,7 +1224,7 @@ function renderGoals(){
   <div id="goalPathsCard" style="margin-bottom:16px"></div>
 
   <div class="card">
-    <div class="card-h"><h3>${T('goal_breakdown','פירוק היעד — חודשי מול יומי')}</h3><span class="sub">כל מה שצריך לבצע</span></div>
+    <div class="card-h"><h3>${T('goal_breakdown','פירוק היעד — חודשי מול יומי')}</h3><span class="sub">הגעה ליעד על סמך לקוחות חדשים בלבד</span></div>
     <div style="margin-bottom:8px"><span class="tag green">רווח חודש הצטרפות מלקוח חדש: <b style="font-family:'Rubik';direction:ltr">${money(profitFromOneNewClient())}₪</b></span>
       <span class="hint" style="display:inline;margin-right:8px">הקמה ${money(state.setupFee)}₪ + ריטיינר חדש ${money(state.retainerNew||state.retainer)}₪ פחות עמלות וסליקה ${help('firstMonthProfit')}</span></div>
     <div style="margin-bottom:14px"><span class="tag purple">אחוז המרה אפקטיבי: <span id="effShow"></span></span>
