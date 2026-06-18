@@ -952,74 +952,96 @@ function leadsCapacityBalance(plan, s = state){
   // עדיפות 3: אם אין שום מקור - נשתמש בתקציב היעד כברירת מחדל
   let actualBudgetMonthly = null;
   let actualBudgetSource = '';
-  let actualDailyDirect = null;  // אם יש לנו נתון יומי ישיר - נעדיף אותו
+  let actualDailyDirect = null;
+  let budgetSpentSoFar = 0;       // כמה הוצאת עד עכשיו
+  let daysPassedThisMonth = 0;    // כמה ימים עברו
   const actBudget = parseFloat(s.actBudget);
   const actDays = parseFloat(s.actDays);
   if(actBudget>0 && actDays>0){
-    // המשתמש הזין תקציב שיצא ב-X ימים שעברו ⟶ זה ה"קצב היומי בפועל"
     actualDailyDirect = actBudget/actDays;
     actualBudgetMonthly = actualDailyDirect * s.daysMonth;
     actualBudgetSource = `${money(actBudget)}₪ ב-${actDays} ימים שעברו החודש`;
+    budgetSpentSoFar = actBudget;
+    daysPassedThisMonth = actDays;
   } else if(s.mondayRaw && s.mondayRaw.current && s.mondayRaw.current.budget>0){
     actualBudgetMonthly = s.mondayRaw.current.budget;
     actualBudgetSource = 'מאנדיי - תקציב חודשי שיצא';
+    budgetSpentSoFar = s.mondayRaw.current.budget;
+    daysPassedThisMonth = s.daysMonth; // נחשב כאילו עברו כל הימים
   } else {
     actualBudgetMonthly = plan.marketing;
     actualBudgetSource = 'אין נתון בפועל - לפי תקציב היעד';
+    budgetSpentSoFar = 0;
+    daysPassedThisMonth = 0;
   }
 
   const currentDaily = actualDailyDirect !== null ? actualDailyDirect : (actualBudgetMonthly / s.daysMonth);
-  // לידים בפועל = תקציב חודשי בפועל / מחיר ליד
   const actualLeads = actualBudgetMonthly / s.costPerLead;
-  const callsNow = actualLeads * c.answer;       // שיחות שייענו לפי הלידים בפועל
-  const tolerance = capacity * 0.05;             // 5% טווח לאיזון
-  const balancedLeads = capacity / c.answer;     // לידים שצריך כדי לנצל בדיוק את הקיבולת
+  const callsNow = actualLeads * c.answer;
+  const tolerance = capacity * 0.05;
+  const balancedLeads = capacity / c.answer;
   const balancedBudget = balancedLeads * s.costPerLead;
   const balancedDaily = balancedBudget / s.daysMonth;
 
+  // === תקציב יומי לתיקון לסיום החודש ===
+  // בהתחשב במה שכבר הוצאת, מה הקצב היומי לימים שנותרו כדי להגיע לסך החודשי המאוזן?
+  const daysLeftThisMonth = Math.max(0, s.daysMonth - daysPassedThisMonth);
+  const budgetRemainingNeeded = Math.max(0, balancedBudget - budgetSpentSoFar);
+  const correctionDaily = daysLeftThisMonth>0 ? budgetRemainingNeeded/daysLeftThisMonth : null;
+  // האם רלוונטי להציג? רק אם יש ימים שנותרו וגם פער מהתקציב המאוזן
+  const hasCorrection = daysLeftThisMonth>0 && daysPassedThisMonth>0 && Math.abs(balancedBudget - budgetSpentSoFar*s.daysMonth/Math.max(daysPassedThisMonth,1)) > balancedBudget*0.05;
+
+  const baseResult = {
+    capacity, callsNow,
+    currentDaily, balancedDaily,
+    correctionDaily, daysLeftThisMonth, daysPassedThisMonth,
+    budgetSpentSoFar, balancedBudget,
+    hasCorrection,
+    actualBudgetSource,
+  };
+
   if(callsNow > capacity + tolerance){
-    // יותר מדי לידים - חוסר ניצול / בזבוז
     const excessCalls = callsNow - capacity;
     const wastedLeads = excessCalls / c.answer;
     const wastedBudget = wastedLeads * s.costPerLead;
     const wastedDaily = wastedBudget / s.daysMonth;
     return {
+      ...baseResult,
       status: 'over',
-      capacity, callsNow,
       message: `יש יותר מדי לידים מהקיבולת של הצוות`,
-      detail: `הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לטפל ב-${fmt(capacity)} שיחות בחודש, אבל הלידים שלך מייצרים ${fmt(callsNow)} שיחות. ${fmt1(wastedLeads)} לידים בחודש יורדים לטמיון.`,
-      action: `הורד את התקציב היומי ב-${money(wastedDaily)}₪`,
-      currentDaily, balancedDaily,
-      actualBudgetSource,
+      detail: `הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לטפל ב-${fmt(capacity)} שיחות בחודש, אבל הקצב הנוכחי שלך מייצר ${fmt(callsNow)} שיחות בחודש (אם תמשיך בקצב כזה כל החודש). ${fmt1(wastedLeads)} לידים בחודש יורדים לטמיון.`,
+      actionGeneral: `הורד את התקציב היומי הקבוע ל-${money(balancedDaily)}₪`,
+      actionRemaining: hasCorrection && correctionDaily!=null
+        ? `לסיום החודש בלבד: הורד ל-${money(Math.max(0,correctionDaily))}₪ ל-${daysLeftThisMonth} הימים שנותרו`
+        : '',
       excessLeads: wastedLeads,
       wastedBudget,
     };
   } else if(callsNow < capacity - tolerance){
-    // פחות מדי לידים - יש קיבולת פנויה
     const deficitCalls = capacity - callsNow;
     const neededLeads = deficitCalls / c.answer;
     const neededBudget = neededLeads * s.costPerLead;
     const neededDaily = neededBudget / s.daysMonth;
     return {
+      ...baseResult,
       status: 'under',
-      capacity, callsNow,
       message: `יש לך קיבולת פנויה — אפשר לסגור עוד עסקאות`,
-      detail: `הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לטפל ב-${fmt(capacity)} שיחות בחודש, אבל הלידים שלך מייצרים רק ${fmt(callsNow)} שיחות. יש מקום לעוד ${fmt1(neededLeads)} לידים בחודש.`,
-      action: `העלה את התקציב היומי ב-${money(neededDaily)}₪`,
-      currentDaily, balancedDaily,
-      actualBudgetSource,
+      detail: `הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לטפל ב-${fmt(capacity)} שיחות בחודש, אבל הקצב הנוכחי שלך מייצר רק ${fmt(callsNow)} שיחות בחודש (אם תמשיך בקצב כזה כל החודש). יש מקום לעוד ${fmt1(neededLeads)} לידים בחודש.`,
+      actionGeneral: `העלה את התקציב היומי הקבוע ל-${money(balancedDaily)}₪`,
+      actionRemaining: hasCorrection && correctionDaily!=null
+        ? `לסיום החודש בלבד: עלה ל-${money(correctionDaily)}₪ ל-${daysLeftThisMonth} הימים שנותרו`
+        : '',
       deficitLeads: neededLeads,
       neededBudget,
     };
   } else {
     return {
+      ...baseResult,
       status: 'balanced',
-      capacity, callsNow,
       message: 'התקציב והקיבולת מאוזנים',
       detail: `הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) מטפל ב-${fmt(callsNow)} שיחות מתוך ${fmt(capacity)} אפשריות. ניצול: ${fmt1(callsNow/capacity*100)}%.`,
-      action: '',
-      currentDaily, balancedDaily,
-      actualBudgetSource,
+      actionGeneral: '',
+      actionRemaining: '',
     };
   }
 }
@@ -1041,25 +1063,31 @@ function renderLeadsCapacityCard(plan, contextLabel){
       <span class="sub">${contextLabel||''}</span>
     </div>
     <p style="font-size:13.5px;color:var(--txt-dim);margin-bottom:14px;line-height:1.6">${b.detail}</p>
-    <div class="grid cols-3" style="gap:12px">
+    <div class="grid ${b.hasCorrection?'cols-4':'cols-3'}" style="gap:12px">
       <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px">
         <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">תקציב יומי בפועל</div>
         <div style="font-family:'Rubik';font-weight:700;font-size:20px;direction:ltr;text-align:right">${money(b.currentDaily)}₪</div>
         <div style="font-size:10px;color:var(--txt-faint);margin-top:4px">מקור: ${b.actualBudgetSource||''}</div>
       </div>
       <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px">
-        <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">תקציב יומי מאוזן</div>
+        <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">תקציב יומי מאוזן (כללי)</div>
         <div style="font-family:'Rubik';font-weight:700;font-size:20px;color:${colorVar};direction:ltr;text-align:right">${money(b.balancedDaily)}₪</div>
-        <div style="font-size:10px;color:var(--txt-faint);margin-top:4px">מתאים בדיוק לקיבולת הצוות</div>
+        <div style="font-size:10px;color:var(--txt-faint);margin-top:4px">קצב יומי קבוע לאורך החודש</div>
       </div>
+      ${b.hasCorrection && b.correctionDaily!=null ? `<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px">
+        <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">תקציב יומי לסיום החודש</div>
+        <div style="font-family:'Rubik';font-weight:700;font-size:20px;color:${colorVar};direction:ltr;text-align:right">${money(Math.max(0,b.correctionDaily))}₪</div>
+        <div style="font-size:10px;color:var(--txt-faint);margin-top:4px">${b.daysLeftThisMonth} ימים נותרו · תיקון לקצב</div>
+      </div>` : ''}
       <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px">
         <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">ניצול קיבולת</div>
         <div style="font-family:'Rubik';font-weight:700;font-size:20px;direction:ltr;text-align:right">${fmt1(b.callsNow/b.capacity*100)}%</div>
         <div style="font-size:10px;color:var(--txt-faint);margin-top:4px">${fmt(b.callsNow)} מתוך ${fmt(b.capacity)} שיחות</div>
       </div>
     </div>
-    ${b.action ? `<div style="margin-top:12px;padding:11px 14px;background:var(--bg-2);border-right:3px solid ${colorVar};border-radius:6px;font-size:13.5px;color:var(--txt);line-height:1.5">
-      <b>המלצה:</b> ${b.action}
+    ${b.actionGeneral ? `<div style="margin-top:12px;padding:11px 14px;background:var(--bg-2);border-right:3px solid ${colorVar};border-radius:6px;font-size:13.5px;color:var(--txt);line-height:1.6">
+      <div><b>המלצה לטווח הארוך:</b> ${b.actionGeneral}</div>
+      ${b.actionRemaining ? `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line-soft)"><b>המלצה לחודש הנוכחי:</b> ${b.actionRemaining}</div>` : ''}
     </div>` : ''}
   </div>`;
 }
