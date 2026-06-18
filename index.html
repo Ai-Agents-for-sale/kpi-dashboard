@@ -1995,55 +1995,87 @@ function updateProfitMoves(){
     }
     addRepFormula = `${fmt(roi_addRep_callsFromCurrentLeads)} שיחות מהפער הקיים × ${fmt1(s.closeRate)}% סגירה × ${money(profitPerClientPreMarketing)}₪`;
   }
+  // ========= חישוב השפעה ל-12 חודשים לכל מהלך =========
+  // כל מהלך מסווג: 'recurring' = השפעה חוזרת בכל חודש (פעמים 12)
+  //                'growing' = השפעה גדלה לאורך זמן (פעמים ~13-15 כי הבסיס גדל)
+  //                'oneTime' = השפעה חד-פעמית (פעמים 1)
+  // המכפיל מקורב — לא חישוב מדויק
   const moves = [
     {name:'תוסיף לידים', unit:'10 לידים בחודש', effect: roi_lead*10, color:'blue', icon:'lead', capImpact:'leads',
+      type:'recurring', mult12: 12,
       explain:'כל 10 לידים נוספים → נהפכים בחלקם ללקוחות לפי אחוז ההמרה, פחות עלות הלידים עצמם',
       formula:`10 לידים × ${fmt1(c.effConv*100)}% המרה × ${money(profitPerClientPreMarketing)}₪ רווח חודשי ללקוח − 10 × ${s.costPerLead}₪ עלות`},
     {name:'תעלה אחוז סגירה', unit:'אחוז', effect: roi_closePerPP, color:'green', icon:'conv', capImpact:'close',
+      type:'recurring', mult12: 12,
       explain:'אחוז סגירה משפיע רק על השיחות שענו להן (לכן אחוז המענה בחישוב). כל +1% = יותר לקוחות מאותם לידים',
       formula:`${fmt(currentLeads)} לידים × ${s.answerRate}% מענה × 1% × ${money(profitPerClientPreMarketing)}₪`},
     {name:'תעלה אחוז מענה', unit:'אחוז', effect: roi_answerPerPP, color:'purple', icon:'phone', capImpact:'answer',
+      type:'recurring', mult12: 12,
       explain:'אחוז מענה מביא יותר שיחות, אבל רק חלק מהן ייסגרו (לכן אחוז הסגירה בחישוב)',
       formula:`${fmt(currentLeads)} לידים × 1% × ${s.closeRate}% סגירה × ${money(profitPerClientPreMarketing)}₪`},
     {name:'תעלה מחיר הקמה', unit:'10 ₪', effect: roi_setupPer10, color:'amber', icon:'wallet',
+      type:'recurring', mult12: 12,
       explain:'כל ₪ נוסף בהקמה הוא הכנסה ישירה לכל לקוח חדש, פחות עמלת המכירות והסליקה שגדלות יחד איתו',
       formula:`${fmt1(currentClients)} לקוחות × 10₪ × (1 − ${s.salesCommPct}% עמלה − ${s.processingFeePct}% סליקה)`},
     {name:'תעלה ריטיינר ללקוחות חדשים', unit:'10 ₪', effect: roi_retainerPer10, color:'green', icon:'repeat',
+      type:'growing', mult12: 78, // מצטבר: לקוחות חדשים בחודש 1, 2, 3... כפול ההפרש בריטיינר. 1+2+...+12 = 78
       explain:'כל ₪ נוסף בריטיינר ללקוחות חדשים שיגויסו החודש. לא משפיע על הבסיס הקיים (אי-אפשר להעלות מחיר ללקוחות קיימים).',
       formula:`${fmt1(currentClients)} לקוחות חדשים × 10₪ × (1−${s.onboardCommPct}% עמלת אונבורדינג − ${s.processingFeePct}% סליקה)`},
     {name:'תוריד שחיקה חודשית', unit:'אחוז', effect: roi_churnPerPP, color:'green', icon:'repeat',
+      type:'growing', mult12: 18, // הבסיס גדל ועוצמת ההשפעה גדלה בהתאמה
       explain:`כל 1% פחות שחיקה = ${fmt1(c.activeNow*0.01)} לקוחות פחות עוזבים החודש. הם משלמים בממוצע חצי חודש (כי השחיקה מתפזרת לאורך החודש). זה מספר קטן יחסית לחודש אחד, אבל מצטבר חודש אחר חודש ובונה את הבסיס לטווח ארוך.`,
-      formula:`${fmt1(c.activeNow)} פעילים × ½% × ${money(s.retainer)}₪ × ${fmt1(100-s.processingFeePct)}% אחרי סליקה = ${money(roi_churnPerPP)}₪ <b>בחודש אחד</b> (אבל מצטבר לאורך זמן)`},
+      formula:`${fmt1(c.activeNow)} פעילים × ½% × ${money(s.retainer)}₪ × ${fmt1(100-s.processingFeePct)}% אחרי סליקה = ${money(roi_churnPerPP)}₪ <b>בחודש אחד</b>`},
     {name:'תוריד עמלת מכירות', unit:'אחוז', effect: roi_commPerPP, color:'amber', icon:'percent',
+      type:'recurring', mult12: 12,
       explain:'הורדה של 1% בעמלה = חיסכון של 1% ממחיר ההקמה על כל לקוח חדש',
       formula:`${fmt1(currentClients)} לקוחות × ${money(s.setupFee)}₪ הקמה × 1%`},
     {name:'תוריד מחיר ליד', unit:'1 ₪', effect: roi_cplPer1, color:'red', icon:'target',
+      type:'recurring', mult12: 12,
       explain:'הורדה של ₪ אחד בעלות הליד = חיסכון של ₪ אחד על כל ליד שנכנס לאורך החודש',
       formula:`${fmt(currentLeads)} לידים × 1₪ חיסכון לליד`},
     {name:'תוסיף איש מכירות', unit:'לכל איש מכירות באחוז המרה נוכחי', effect: roi_addRep_net, color:'purple', icon:'users',
+      type:'recurring', mult12: 12,
       explain: addRepExplain,
       formula: addRepFormula},
   ];
   moves.sort((a,b)=>b.effect-a.effect);
   const maxAbs = Math.max(...moves.map(m=>Math.abs(m.effect)),1);
-  document.getElementById('moveRanking').innerHTML = moves.map((m,i)=>`
-    <div style="padding:12px 0;${i<moves.length-1?'border-bottom:1px solid var(--line-soft)':''}">
+  // הסבר על ROI בראש הטבלה
+  const headerNote = `<div style="background:rgba(73,170,255,.08);border:1px solid rgba(73,170,255,.2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:var(--txt-dim);line-height:1.6">
+    <div style="display:flex;align-items:flex-start;gap:8px"><span style="color:var(--blue);flex-shrink:0;margin-top:2px">${svg('info')}</span><div>
+    <b style="color:var(--txt)">איך לקרוא את הטבלה:</b><br>
+    הטבלה מציגה את ההשפעה <b>החודשית הנוכחית</b> של כל שינוי - כאילו שינית רק את הפרמטר הזה, רק החודש הזה. לידו מוצגת <b>הערכה ל-12 חודשים קדימה</b>.<br>
+    <b>חשוב:</b> שינויים כמו הורדת שחיקה או העלאת ריטיינר נראים קטנים בחודש בודד, אבל מצטברים לאורך זמן וגדלים ככל שהבסיס גדל. שינויים חד-פעמיים כמו תוספת לידים נשארים יחסית קבועים.
+    </div></div>
+  </div>`;
+  document.getElementById('moveRanking').innerHTML = headerNote + moves.map((m,i)=>{
+    const yearly = (m.effect||0) * (m.mult12||12);
+    const typeLabel = m.type==='growing' ? 'גדל לאורך זמן' : (m.type==='recurring' ? 'חוזר כל חודש' : 'חד-פעמי');
+    const typeColor = m.type==='growing' ? 'var(--accent)' : (m.type==='recurring' ? 'var(--blue)' : 'var(--txt-faint)');
+    return `
+    <div style="padding:14px 0;${i<moves.length-1?'border-bottom:1px solid var(--line-soft)':''}">
       <div style="display:flex;align-items:center;gap:12px">
         <div style="background:var(--${m.color}-soft);color:${COLORS[m.color]};width:32px;height:32px;border-radius:8px;display:grid;place-items:center;flex-shrink:0">${svg(m.icon)}</div>
         <div style="flex:1;min-width:0">
           <div style="font-weight:600;font-size:14px">${m.name}</div>
-          <div style="font-size:12px;color:var(--txt-faint)">לכל ${m.unit}</div>
+          <div style="font-size:12px;color:var(--txt-faint)">לכל ${m.unit} · <span style="color:${typeColor}">${typeLabel}</span></div>
         </div>
-        <div style="width:30%;min-width:100px">
-          <div style="height:8px;background:var(--bg-2);border-radius:99px;overflow:hidden"><div style="height:100%;background:${COLORS[m.color]};width:${Math.max(Math.abs(m.effect)/maxAbs*100,2)}%"></div></div>
+        <div style="display:flex;gap:14px;align-items:center;min-width:240px;justify-content:flex-end">
+          <div style="text-align:left">
+            <div style="font-size:10.5px;color:var(--txt-faint);margin-bottom:2px">החודש</div>
+            <div style="font-family:'Rubik';font-weight:800;font-size:16px;color:${m.effect>=0?'var(--accent)':'var(--red)'};direction:ltr">${m.effect>=0?'+':''}${money(m.effect)}₪</div>
+          </div>
+          <div style="text-align:left;border-right:1px dashed var(--line-soft);padding-right:14px">
+            <div style="font-size:10.5px;color:var(--txt-faint);margin-bottom:2px">~12 חודש</div>
+            <div style="font-family:'Rubik';font-weight:800;font-size:16px;color:${yearly>=0?'var(--accent)':'var(--red)'};direction:ltr;opacity:.85">${yearly>=0?'+':''}${money(yearly)}₪</div>
+          </div>
         </div>
-        <div style="font-family:'Rubik';font-weight:800;font-size:18px;color:${m.effect>=0?'var(--accent)':'var(--red)'};direction:ltr;text-align:left;min-width:90px">${m.effect>=0?'+':''}${money(m.effect)}₪</div>
       </div>
-      <div style="margin-top:6px;margin-right:44px;line-height:1.6;direction:rtl">
-        <div style="font-size:12px;color:var(--txt-dim);margin-bottom:2px">${m.explain}</div>
+      <div style="margin-top:8px;margin-right:44px;line-height:1.6;direction:rtl">
+        <div style="font-size:12px;color:var(--txt-dim);margin-bottom:3px">${m.explain}</div>
         <div style="font-size:11.5px;color:var(--txt-faint)"><b style="color:var(--txt-dim)">חישוב:</b> ${m.formula}</div>
       </div>
-    </div>`).join('');
+    </div>`;}).join('');
 
   // ========= כמה צריך לשפר כדי להגיע ליעד (כל מהלך לחוד) =========
   const profitGap = goal - currentProfit;
