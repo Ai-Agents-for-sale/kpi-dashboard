@@ -572,7 +572,11 @@ function profitExpectedEndOfMonth(s = state){
   const salesComm = setupIncome * c.commPct;
   const joinedRetainer = s.joinedRetainer || 0;
   const onbComm = joinedRetainer * c.onbCommPct * retainerAvg;
+  // תקציב שיווק הכולל לחודש = (תקציב יומי בפועל) × (ימים בחודש)
   const actBudget = parseFloat(s.actBudget) || 0;
+  const actDays = parseFloat(s.actDays) || 0;
+  const dailyBudget = actDays>0 ? actBudget/actDays : 0;
+  const totalMonthlyMarketing = dailyBudget * s.daysMonth;
   const fixedCosts = s.fixedCosts || 0;
   return {
     income: totalIncome,
@@ -581,9 +585,9 @@ function profitExpectedEndOfMonth(s = state){
     procFee,
     salesComm,
     onbComm,
-    marketing: actBudget,
+    marketing: totalMonthlyMarketing,
     fixedCosts,
-    operating: totalIncome - procFee - salesComm - onbComm - actBudget - fixedCosts,
+    operating: totalIncome - procFee - salesComm - onbComm - totalMonthlyMarketing - fixedCosts,
   };
 }
 
@@ -1300,9 +1304,17 @@ function renderGoals(){
   <div style="margin-top:16px">${renderLeadsCapacityCard(planFromClients(clientsForProfit(state.goalProfit)), 'התאמת תקציב שיווק לקיבולת הצוות')}</div>
 
   <div class="card" style="margin-top:16px">
-    <div class="card-h"><h3>תחזית 12 חודשים קדימה</h3><span class="tag blue">מסע ההכנסה לטווח ארוך</span></div>
-    <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px">בהנחה שתגייס את כמות הלקוחות הנדרשת לכל חודש, ושיעור השחיקה שלך הוא ${fmt1(state.churnRate)}% — כך הבסיס שלך יתפתח. שים לב שהרווח החודשי גדל לאורך זמן כי בסיס הלקוחות הקיים גדל.</p>
-    <div id="forecastBox" style="overflow-x:auto"></div>
+    <div class="card-h" style="cursor:pointer;user-select:none" onclick="toggleForecast()">
+      <h3 style="display:flex;align-items:center;gap:8px">
+        <span id="forecastChevron" style="display:inline-block;transition:transform .2s;font-size:13px">▼</span>
+        תחזית 12 חודשים קדימה
+      </h3>
+      <span class="tag blue">לחץ להרחבה</span>
+    </div>
+    <div id="forecastContent" style="display:none">
+      <p style="font-size:13px;color:var(--txt-dim);margin:14px 0">בהנחה שתגייס את כמות הלקוחות הנדרשת לכל חודש, ושיעור השחיקה שלך הוא ${fmt1(state.churnRate)}% — כך הבסיס שלך יתפתח. שים לב שהרווח החודשי גדל לאורך זמן כי בסיס הלקוחות הקיים גדל.</p>
+      <div id="forecastBox" style="overflow-x:auto"></div>
+    </div>
   </div>
 
   <div class="card" style="margin-top:16px">
@@ -1331,6 +1343,15 @@ function onActInput(input){
   state[input.dataset.key] = v===''? '' : (parseFloat(v)||0);
   saveState(); refreshActual();
 }
+function toggleForecast(){
+  const content = document.getElementById('forecastContent');
+  const chevron = document.getElementById('forecastChevron');
+  if(!content) return;
+  const isOpen = content.style.display !== 'none';
+  content.style.display = isOpen ? 'none' : 'block';
+  if(chevron) chevron.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(-90deg)';
+}
+
 function renderForecast(monthlyNewClients){
   const box=document.getElementById('forecastBox'); if(!box) return;
   if(!state.activeClients){ box.innerHTML='<div class="hint">תחזית 12 חודשים זמינה רק אחרי משיכת נתונים ממאנדיי (דרושים: לקוחות פעילים + שיעור שחיקה).</div>'; return; }
@@ -1749,7 +1770,10 @@ function refreshActual(){
       <div class="split">
         ${gapFromSoFar>0 ? `
         <div style="background:var(--bg-2);border:1px solid rgba(73,170,255,.25);border-radius:12px;padding:14px">
-          <div style="font-size:12px;color:var(--blue);margin-bottom:6px;font-weight:600">מהרווח שכבר נכנס בפועל</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+            <div style="font-size:12px;color:var(--blue);font-weight:600">מהרווח שכבר נכנס בפועל</div>
+            <div style="font-family:'Rubik';font-size:14px;font-weight:700;color:${profitSoFarVal>=0?'var(--accent)':'var(--red)'};direction:ltr">${money(profitSoFarVal)}₪</div>
+          </div>
           <div class="hint" style="font-size:11px;margin-bottom:10px">פער ${money(gapFromSoFar)}₪ עד היעד</div>
           <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
             <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">לקוחות נדרשים</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${fmt1(clientsNeededFromSoFar)}</div></div>
@@ -1760,7 +1784,10 @@ function refreshActual(){
         </div>` : ''}
         ${gapFromExpected>0 ? `
         <div style="background:var(--bg-2);border:1px solid rgba(247,184,1,.25);border-radius:12px;padding:14px">
-          <div style="font-size:12px;color:var(--amber);margin-bottom:6px;font-weight:600">מהרווח הצפוי לסוף החודש</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+            <div style="font-size:12px;color:var(--amber);font-weight:600">מהרווח הצפוי לסוף החודש</div>
+            <div style="font-family:'Rubik';font-size:14px;font-weight:700;color:${projOperating>=0?'var(--accent)':'var(--red)'};direction:ltr">${money(projOperating)}₪</div>
+          </div>
           <div class="hint" style="font-size:11px;margin-bottom:10px">פער ${money(gapFromExpected)}₪ עד היעד</div>
           <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
             <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">לקוחות נדרשים</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${fmt1(clientsNeededFromExpected)}</div></div>
@@ -3374,7 +3401,10 @@ ${fmt(capacity)} שיחות × ${fmt1(state.closeRate)}% סגירה = <b>${fmt1(
     body:()=>{
       const r=profitExpectedEndOfMonth();
       const c=compute();
-      return `הרווח הצפוי לסוף החודש, <b>בהנחה שלא ייסגרו עוד לקוחות מהיום והלאה</b>.<br><br>
+      const actBudget = parseFloat(state.actBudget) || 0;
+      const actDays = parseFloat(state.actDays) || 0;
+      const dailyBudget = actDays>0 ? actBudget/actDays : 0;
+      return `הרווח הצפוי לסוף החודש.<br><br>
 <b>הכנסות:</b><br>
 ריטיינר צפוי: ${state.activeClients} פעילים × ${money(state.retainer)}₪ × ${fmt1((1-c.churnPct/2)*100)}% (אחרי שחיקה) = <b>${money(r.expectedRetainers)}₪</b><br>
 הקמות שנכנסו עד היום: <b>${money(r.setupIncome)}₪</b><br>
@@ -3383,11 +3413,11 @@ ${fmt(capacity)} שיחות × ${fmt1(state.closeRate)}% סגירה = <b>${fmt1(
 סליקה: ${money(r.procFee)}₪<br>
 עמלת מכירה (על ההקמות שנכנסו): ${money(r.salesComm)}₪<br>
 עמלת אונבורדינג (${state.joinedRetainer||0} שהצטרפו): ${money(r.onbComm)}₪<br>
-תקציב שיווק שיצא (לא צופים עוד): ${money(r.marketing)}₪<br>
+תקציב שיווק חודשי מלא (${money(dailyBudget)}₪/יום × ${state.daysMonth} ימים): ${money(r.marketing)}₪<br>
 הוצאות קבועות: ${money(r.fixedCosts)}₪<br><br>
 <b>רווח תפעולי צפוי:</b> ${money(r.operating)}₪`;
     },
-    f:'(פעילים × ריטיינר × (1−שחיקה/2)) + הקמות שנכנסו − עלויות'},
+    f:'(פעילים × ריטיינר × (1−שחיקה/2)) + הקמות שנכנסו − עלויות (כולל שיווק חודשי מלא)'},
 };
 function help(key){return `<span class="help" onclick="openHelp('${key}')">?</span>`;}
 function openHelp(key){
