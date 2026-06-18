@@ -1477,72 +1477,106 @@ function refreshActual(){
 function renderRecommendations(projOperating, goal, daysLeft, closes, leads, daysPassed, c){
   const gap = goal - projOperating;
   if(gap<=0) return '';
-  // נחשב מהיום עד סוף החודש כמה מהמרכיבים השונים צריכים לבצע
-  // נניח שאת הימים שעברו לא נשנה - רק את מה שנותר
   const s = state;
-  // צפוי בקצב נוכחי לימים שנותרו
   const projFromNow = (closes||0)/(daysPassed||1) * daysLeft;
-  // צריך עוד לקוחות מהיום עד סוף החודש כדי להגיע ליעד
-  const profitPerNewClient = profitFromOneNewClient(s); // כולל שיווק
+  const profitPerNewClient = profitFromOneNewClient(s);
   const extraClientsNeeded = profitPerNewClient>0 ? gap/profitPerNewClient : Infinity;
-  // נציג 3 מהלכים אפשריים בנפרד שכל אחד יסגור את הפער לבד
-  const recs = [];
-  // א. תוסיף סגירות בקצב גבוה יותר
-  const extraPerDay = daysLeft>0 ? extraClientsNeeded/daysLeft : Infinity;
-  const newPaceNeeded = (closes||0)/(daysPassed||1) + extraPerDay;
-  if(isFinite(extraClientsNeeded) && extraClientsNeeded<=daysLeft*5){
-    recs.push({
-      icon:'conv', color:'green',
-      title:'תסגור יותר עסקאות מהיום',
-      detail:`עוד <b>${fmt1(extraClientsNeeded)}</b> לקוחות סגורים עד סוף החודש (<b>${fmt1(extraPerDay)}</b> נוספים ביום) = <b>${fmt1(newPaceNeeded)}</b> סגירות ביום במקום ${fmt1((closes||0)/(daysPassed||1))}`,
-    });
-  }
-  // ב. תעלה אחוז סגירה - על השיחות שכבר תעשה מהיום
-  // צפוי לידים נותרים מהיום: לידים/יום * ימים נותרים
   const leadsPerDay = (leads||0)/(daysPassed||1);
   const leadsRemaining = leadsPerDay * daysLeft;
-  // צריך עוד extraClientsNeeded לקוחות מ-leadsRemaining לידים
-  // כל אחוז המרה נוסף = leadsRemaining * 0.01 לקוחות
+  const recs = [];
+
+  // א. תסגור יותר עסקאות
+  if(isFinite(extraClientsNeeded)){
+    const extraPerDay = daysLeft>0 ? extraClientsNeeded/daysLeft : Infinity;
+    const newPaceNeeded = (closes||0)/(daysPassed||1) + extraPerDay;
+    const realistic = extraClientsNeeded <= daysLeft*5;
+    recs.push({
+      icon:'conv', color:'green', realistic,
+      title:'תסגור יותר עסקאות מהיום',
+      detail:`עוד <b>${fmt1(extraClientsNeeded)}</b> לקוחות סגורים עד סוף החודש (<b>${fmt1(extraPerDay)}</b> נוספים ביום) = <b>${fmt1(newPaceNeeded)}</b> סגירות ביום במקום ${fmt1((closes||0)/(daysPassed||1))}`,
+      warning: !realistic ? 'הקצב הנדרש גבוה מאוד — סביר להניח שלא ריאלי בלי שינויים אחרים' : '',
+    });
+  }
+
+  // ב. תעלה אחוז סגירה
   if(leadsRemaining>0){
     const dEff = (extraClientsNeeded/leadsRemaining) * 100;
-    const currentEff = c.effConv*100;
-    const newEff = currentEff + dEff;
-    if(newEff<=80){
-      // אפשרי - להעלות אחוז סגירה (close) רק
-      const dClose = c.answer>0 ? (dEff/100)/c.answer*100 : Infinity;
-      const newClose = s.closeRate + dClose;
-      if(newClose<=80){
-        recs.push({
-          icon:'percent', color:'amber',
-          title:'תעלה אחוז סגירה',
-          detail:`מ-<b>${fmt1(s.closeRate)}%</b> ל-<b>${fmt1(newClose)}%</b> (+${fmt1(dClose)} נקודות) על השיחות שיגיעו ב-${daysLeft} הימים שנותרו`,
-        });
-      }
-    }
+    const dClose = c.answer>0 ? (dEff/100)/c.answer*100 : Infinity;
+    const newClose = s.closeRate + dClose;
+    const realistic = newClose<=80 && dClose<=30;
+    recs.push({
+      icon:'percent', color:'amber', realistic,
+      title:'תעלה אחוז סגירה',
+      detail:`מ-<b>${fmt1(s.closeRate)}%</b> ל-<b>${fmt1(newClose)}%</b> (+${fmt1(dClose)} נקודות) על השיחות ב-${daysLeft} הימים שנותרו`,
+      warning: !realistic ? `אחוז סגירה של ${fmt1(newClose)}% גבוה מהממוצע — סביר להניח שלא ריאלי בלי שינויים אחרים` : '',
+    });
   }
-  // ג. תעלה מחיר הקמה ללקוחות שתסגור מהיום
+
+  // ב.2 תעלה אחוז מענה
+  if(leadsRemaining>0){
+    // אחוז מענה נוסף שיביא extraClientsNeeded לקוחות נוספים = extraClientsNeeded / (leadsRemaining * closeRate)
+    const dAnswer = c.close>0 ? (extraClientsNeeded / (leadsRemaining * c.close))*100 : Infinity;
+    const newAnswer = s.answerRate + dAnswer;
+    const realistic = newAnswer<=95 && dAnswer<=30;
+    recs.push({
+      icon:'phone', color:'purple', realistic,
+      title:'תעלה אחוז מענה',
+      detail:`מ-<b>${fmt1(s.answerRate)}%</b> ל-<b>${fmt1(newAnswer)}%</b> (+${fmt1(dAnswer)} נקודות) — יותר לידים שעונים ⟵ יותר שיחות ⟵ יותר סגירות`,
+      warning: !realistic ? `אחוז מענה של ${fmt1(newAnswer)}% גבוה מאוד — צריך פולואפ אגרסיבי וטכניקות נוספות` : '',
+    });
+  }
+
+  // ג. תעלה מחיר הקמה
   if(projFromNow>0){
     const dSetup = gap / (projFromNow * (1 - c.commPct - c.procPct));
-    if(dSetup>0 && dSetup<2000){
+    const realistic = dSetup>0 && dSetup<=s.setupFee*0.5;
+    if(dSetup>0){
       recs.push({
-        icon:'wallet', color:'green',
+        icon:'wallet', color:'green', realistic,
         title:'תעלה מחיר הקמה',
         detail:`מ-<b>${money(s.setupFee)}₪</b> ל-<b>${money(s.setupFee+dSetup)}₪</b> (+${money(dSetup)}₪) על כל לקוח חדש שיצטרף מהיום`,
+        warning: !realistic ? `העלאה של ${money(dSetup)}₪ בהקמה (+${fmt1(dSetup/s.setupFee*100)}%) — סביר להניח שתפגע בהמרה` : '',
       });
     }
   }
+
   // ד. תעלה ריטיינר חדשים
   if(projFromNow>0){
     const dRet = gap / (projFromNow * (1 - c.onbCommPct - c.procPct));
-    if(dRet>0 && dRet<1000){
+    const realistic = dRet>0 && dRet<=c.retainerForNew*0.5;
+    if(dRet>0){
       recs.push({
-        icon:'repeat', color:'green',
+        icon:'repeat', color:'green', realistic,
         title:'תעלה ריטיינר ללקוחות חדשים',
         detail:`מ-<b>${money(c.retainerForNew)}₪</b> ל-<b>${money(c.retainerForNew+dRet)}₪</b> (+${money(dRet)}₪) על כל לקוח חדש שיצטרף מהיום`,
+        warning: !realistic ? `העלאה של ${money(dRet)}₪ בריטיינר (+${fmt1(dRet/c.retainerForNew*100)}%) — סביר להניח שתפגע בהמרה` : '',
       });
     }
   }
+
+  // ה. תוסיף איש מכירות
+  // נציג רק אם הקיבולת לא מספיקה לסגור את הפער
+  const teamSize = Math.max(parseInt(s.teamSize)||1,1);
+  const capPerRep = c.callsPerMonthPerRep;
+  const closesPerRepPerMonth = capPerRep * c.close;
+  const closesPerRepRemaining = closesPerRepPerMonth * (daysLeft/s.daysMonth);
+  // כמה אנשי מכירות נוספים יסגרו את הפער?
+  if(closesPerRepRemaining>0 && extraClientsNeeded>0){
+    const repsNeeded = Math.ceil(extraClientsNeeded / closesPerRepRemaining);
+    // האם הקיבולת אמיתית חסומה? בודק אם יש מספיק לידים לאיש מכירות נוסף
+    const callsAvailableForExtraRep = leadsRemaining * c.answer / Math.max(teamSize,1); // קירוב
+    const realistic = repsNeeded<=3;
+    recs.push({
+      icon:'users', color:'blue', realistic,
+      title:'תוסיף איש מכירות',
+      detail:`<b>${repsNeeded}</b> ${repsNeeded>1?'אנשי':'איש'} מכירות ${repsNeeded>1?'נוספים':'נוסף'} ${repsNeeded>1?'יסגרו':'יסגור'} את הפער (כל איש מכירות נוסף = +${fmt1(closesPerRepRemaining)} עסקאות עד סוף החודש באחוז המרה נוכחי)`,
+      warning: !realistic ? `${repsNeeded} אנשי מכירות זה הרבה לזמן כזה קצר — קשה לגייס ולהכניס מהר` : '',
+    });
+  }
+
   if(!recs.length) return '';
+  // מסדרים: ריאליים קודם
+  recs.sort((a,b)=>(b.realistic?1:0)-(a.realistic?1:0));
   return `<div class="card" style="margin-top:14px;border:1px solid rgba(255,107,107,.25);background:rgba(255,107,107,.04)">
     <div class="card-h">
       <h3>המלצות לסגירת הפער מהיום עד סוף החודש ${help('recommendations')}</h3>
@@ -1550,11 +1584,15 @@ function renderRecommendations(projOperating, goal, daysLeft, closes, leads, day
     </div>
     <p style="font-size:13px;color:var(--txt-dim);margin-bottom:12px">בקצב הנוכחי תיפול בלקצוב 0₪. כל אחד מהמהלכים הבאים, לבד, יסגור את הפער. אפשר גם לשלב.</p>
     <div style="display:flex;flex-direction:column;gap:10px">
-      ${recs.map(r=>`<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:13px 14px;display:flex;align-items:flex-start;gap:12px">
+      ${recs.map(r=>`<div style="background:var(--bg-2);border:1px solid ${r.realistic?'var(--line-soft)':'rgba(247,184,1,.3)'};border-radius:10px;padding:13px 14px;display:flex;align-items:flex-start;gap:12px;${!r.realistic?'opacity:.8':''}">
         <div style="background:var(--${r.color}-soft);color:${COLORS[r.color]};width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${svg(r.icon)}</div>
         <div style="flex:1">
-          <div style="font-weight:700;font-size:14px;margin-bottom:3px">${r.title}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+            <div style="font-weight:700;font-size:14px">${r.title}</div>
+            ${!r.realistic?'<span style="background:rgba(247,184,1,.15);color:var(--amber);font-size:10.5px;padding:1px 7px;border-radius:99px">לא ריאלי לבד</span>':''}
+          </div>
           <div style="font-size:13px;color:var(--txt-dim);line-height:1.5">${r.detail}</div>
+          ${r.warning?`<div style="font-size:11.5px;color:var(--amber);margin-top:6px;line-height:1.5">${r.warning}</div>`:''}
         </div>
       </div>`).join('')}
     </div>
