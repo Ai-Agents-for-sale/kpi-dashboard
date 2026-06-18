@@ -2012,8 +2012,8 @@ function updateProfitMoves(){
       explain:'כל ₪ נוסף בריטיינר ללקוחות חדשים שיגויסו החודש. לא משפיע על הבסיס הקיים (אי-אפשר להעלות מחיר ללקוחות קיימים).',
       formula:`${fmt1(currentClients)} לקוחות חדשים × 10₪ × (1−${s.onboardCommPct}% עמלת אונבורדינג − ${s.processingFeePct}% סליקה)`},
     {name:'תוריד שחיקה חודשית', unit:'אחוז', effect: roi_churnPerPP, color:'green', icon:'repeat',
-      explain:'כל 1% פחות שחיקה = יותר לקוחות פעילים שמשלמים ריטיינר. השפעה ישירה על הבסיס הקיים החודש הזה',
-      formula:`${fmt1(c.activeNow)} פעילים × 0.5% × ${money(s.retainer)}₪ ריטיינר × (1 − ${s.processingFeePct}% סליקה)`},
+      explain:`כל 1% פחות שחיקה = ${fmt1(c.activeNow*0.01)} לקוחות פחות עוזבים החודש. הם משלמים בממוצע חצי חודש (כי השחיקה מתפזרת לאורך החודש). זה מספר קטן יחסית לחודש אחד, אבל מצטבר חודש אחר חודש ובונה את הבסיס לטווח ארוך.`,
+      formula:`${fmt1(c.activeNow)} פעילים × ½% × ${money(s.retainer)}₪ × ${fmt1(100-s.processingFeePct)}% אחרי סליקה = ${money(roi_churnPerPP)}₪ <b>בחודש אחד</b> (אבל מצטבר לאורך זמן)`},
     {name:'תוריד עמלת מכירות', unit:'אחוז', effect: roi_commPerPP, color:'amber', icon:'percent',
       explain:'הורדה של 1% בעמלה = חיסכון של 1% ממחיר ההקמה על כל לקוח חדש',
       formula:`${fmt1(currentClients)} לקוחות × ${money(s.setupFee)}₪ הקמה × 1%`},
@@ -2686,22 +2686,24 @@ ${money(bl.operatingProfit)}₪ × 1.15 = <b>${money(calc2)}₪</b><br><br>
       const setupRev=state.setupFee;
       const retainerRev=c.retainerForNew;
       const totalRev=setupRev+retainerRev;
+      const acqCost=c.acqCost;
       const procFee=totalRev*c.procPct;
       const salesComm=setupRev*c.commPct;
       const onbComm=retainerRev*c.onbCommPct;
+      const totalCosts=acqCost+salesComm+onbComm+procFee;
       return `כמה כסף לקוח חדש מכניס לעסק בחודש שבו הוא מצטרף — לא לאורך כל חייו.<br><br>
 <b>הכנסה בחודש:</b><br>
 הקמה ${money(setupRev)}₪ + ריטיינר ראשון ${money(retainerRev)}₪ = <b>${money(totalRev)}₪</b><br><br>
 <b>עלויות:</b><br>
+עלות שיווק (${fmt1(c.leadsPerClient)} לידים × ${money(state.costPerLead)}₪): ${money(acqCost)}₪<br>
 עמלת מכירה (${fmt1(state.salesCommPct)}% מהקמה): ${money(salesComm)}₪<br>
 עמלת אונבורדינג (${fmt1(state.onboardCommPct)}% מהריטיינר): ${money(onbComm)}₪<br>
 עמלת סליקה (${fmt1(state.processingFeePct)}% מהכל): ${money(procFee)}₪<br>
-<b>סך עלויות: ${money(salesComm+onbComm+procFee)}₪</b><br><br>
+<b>סך עלויות: ${money(totalCosts)}₪</b><br><br>
 <b>רווח חודש הצטרפות:</b><br>
-${money(totalRev)}₪ − ${money(salesComm+onbComm+procFee)}₪ = <b>${money(profitPerNew)}₪</b><br><br>
-<i>הערה: שיווק לא נכלל כאן כי הוא תקציב חודשי - לא עלות ספציפית לכל לקוח.</i>`;
+${money(totalRev)}₪ − ${money(totalCosts)}₪ = <b>${money(profitPerNew)}₪</b>`;
     },
-    f:'(הקמה + ריטיינר חדש)×(1−סליקה) − הקמה×עמלת מכירה − ריטיינר חדש×עמלת אונבורדינג'},
+    f:'(הקמה + ריטיינר חדש) − שיווק − עמלות − סליקה'},
   maxGoal:{t:'יעד רווח מקסימלי',
     body:()=>{
       const c=compute();
