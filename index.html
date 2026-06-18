@@ -327,6 +327,10 @@ const DEFAULTS = {
   mondayMonthsBack:1,             // כמה חודשים לכלול בחישוב נתוני הבסיס (1=נוכחי בלבד)
   churnMonthsBack:1,              // כמה חודשים לכלול בחישוב אחוז השחיקה (נפרד מהשאר)
   mondayRaw:null,                 // הנתונים הגולמיים האחרונים שנמשכו (לחישוב מחדש בלי משיכה)
+  // === שדות הקמה (לחודש הנוכחי בלבד - לא בהיסטוריה) ===
+  setupClients: 0,                // לקוחות בהקמה
+  setupRetainers: 0,              // סכום ריטיינרים שיגיע מהם בחודש
+  setupRemaining: 0,              // סכום שנותר להשלים מעלויות הקמה
   history:[
     {label:'חודש −1', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
     {label:'חודש −2', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
@@ -487,6 +491,34 @@ function profitFromOneNewClient(s = state){
   const onbComm = c.retainerForNew * c.onbCommPct;
   const procFee = revenue * c.procPct;
   return revenue - acquisitionCost - salesComm - onbComm - procFee;
+}
+
+/* רווח מלקוח שנמצא כרגע בהקמה ועובר לריטיינר.
+   ההכנסה: ריטיינר ממוצע של ההקמה + ההקמה הנותרת.
+   העלויות: סליקה, אונבורדינג, עמלת מכירה רק על חצי ההקמה שנותר.
+   *לא כולל שיווק - כי כבר שולם.* */
+function profitFromOneSetupClient(s = state){
+  const c = compute(s);
+  if(!s.setupClients || s.setupClients<=0) return 0;
+  const retainerAvg = (s.setupRetainers||0) / s.setupClients;
+  const remainingSetupAvg = (s.setupRemaining||0) / s.setupClients;
+  const revenue = retainerAvg + remainingSetupAvg;
+  const salesComm = remainingSetupAvg * c.commPct;   // עמלת מכירה רק על מה שנותר להשלים
+  const onbComm = retainerAvg * c.onbCommPct;
+  const procFee = revenue * c.procPct;
+  return revenue - salesComm - onbComm - procFee;
+}
+
+/* רווח מלקוח שעזב וחוזר. אין הקמה (כבר שילם פעם), אין שיווק.
+   *דורש שדות lostClients ו-lostRetainers במאנדיי - שעדיין לא קיימים.* */
+function profitFromOneReturningClient(s = state){
+  const c = compute(s);
+  if(!s.lostClients || s.lostClients<=0 || !s.lostRetainers) return 0;
+  const retainerAvg = s.lostRetainers / s.lostClients;
+  const revenue = retainerAvg;
+  const onbComm = retainerAvg * c.onbCommPct;
+  const procFee = revenue * c.procPct;
+  return revenue - onbComm - procFee;
 }
 
 /* חישוב הפוך: כמה לקוחות חדשים צריך כדי להגיע ליעד רווח חודשי */
@@ -1179,6 +1211,9 @@ function renderGoals(){
       <div id="gRres" style="margin-top:16px"></div>
     </div>
   </div>
+
+  <div id="goalPathsCard" style="margin-bottom:16px"></div>
+
   <div class="card">
     <div class="card-h"><h3>${T('goal_breakdown','פירוק היעד — חודשי מול יומי')}</h3><span class="sub">כל מה שצריך לבצע</span></div>
     <div style="margin-bottom:8px"><span class="tag green">רווח חודש הצטרפות מלקוח חדש: <b style="font-family:'Rubik';direction:ltr">${money(profitFromOneNewClient())}₪</b></span>
@@ -1261,6 +1296,7 @@ function onGoalProfit(v){
   if(document.getElementById('gRres')) document.getElementById('gRres').innerHTML=revQuick(plan);
   renderBrk(plan);
   renderForecast(plan.clients);
+  renderGoalPaths();
   refreshActual();
 }
 function onGoalRev(v){
@@ -1271,8 +1307,158 @@ function onGoalRev(v){
   if(document.getElementById('gPres')) document.getElementById('gPres').innerHTML=goalQuick(plan);
   renderBrk(plan);
   renderForecast(plan.clients);
+  renderGoalPaths();
   refreshActual();
 }
+/* בניית פירוקי יעד אלטרנטיביים — דרכים שונות להגיע ליעד הרווח.
+   1. רק חדשים (פירוק קיים, לא נוגעים)
+   2. רק הקמה (אם אפשרי)
+   3. כל ההקמה + חדשים להשלמה
+   4. שילוב חכם 1:3 (מאמץ לקוח-הקמה = שליש מלקוח-חדש)
+   5. אם 2 לא אפשרי - הקמה + עוזבים + חדשים (רק אם יש שדות עוזבים) */
+function renderGoalPaths(){
+  const el = document.getElementById('goalPathsCard');
+  if(!el) return;
+  const s = state;
+  const setupClients = s.setupClients||0;
+  if(setupClients<=0){ el.innerHTML=''; return; } // אין נתוני הקמה - לא מציגים את הכרטיס
+  const baseProfit = monthlyProfitFromNewClients(0).monthlyOperating;
+  const gap = s.goalProfit - baseProfit;
+  if(gap<=0){ el.innerHTML=''; return; } // היעד מושג מהבסיס לבד
+
+  const profitPerNew = profitFromOneNewClient(s);
+  const profitPerSetup = profitFromOneSetupClient(s);
+  const c = compute(s);
+
+  // === אופציה 2: רק מהקמה ===
+  // כמה לקוחות בהקמה צריך כדי לסגור את הפער?
+  const setupOnlyNeeded = profitPerSetup>0 ? gap/profitPerSetup : Infinity;
+  const setupOnlyPossible = setupOnlyNeeded <= setupClients;
+  const setupOnlyRevenue = setupOnlyNeeded * ((s.setupRetainers/setupClients) + (s.setupRemaining/setupClients));
+
+  // === אופציה 3: כל ההקמה + חדשים להשלמה ===
+  const profitFromAllSetup = setupClients * profitPerSetup;
+  const remainingGapAfterAllSetup = Math.max(0, gap - profitFromAllSetup);
+  const newToCompleteSetup = profitPerNew>0 ? remainingGapAfterAllSetup/profitPerNew : Infinity;
+
+  // === אופציה 4: שילוב חכם 1:3 (מאמץ הקמה = 1, מאמץ חדש = 3) ===
+  // ממזערים: setupTaken×1 + newTaken×3, בכפוף ל: setupTaken×profitPerSetup + newTaken×profitPerNew = gap
+  // setupTaken ≤ setupClients, ושניהם ≥ 0
+  // אחרי בדיקה: רוב הזמן הפתרון הכי "קל" יהיה לקחת את כל ההקמה ולהשלים בחדשים
+  // (כי הקמה זול יותר). אבל אם profitPerNew קטן יחסית, אולי כדאי יותר חדשים.
+  // הפתרון האופטימלי: אם profitPerSetup/1 > profitPerNew/3 → לקחת מקסימום הקמה
+  //                  אחרת → לקחת מקסימום חדשים (אבל אז זו אופציה 1)
+  // בפועל, אנחנו מציעים פתרון שמתחשב בשניהם
+  let smartSetup = 0, smartNew = 0;
+  if(profitPerSetup>0 && profitPerNew>0){
+    const setupEffRatio = profitPerSetup / 1;    // רווח ליחידת מאמץ עבור הקמה
+    const newEffRatio = profitPerNew / 3;        // רווח ליחידת מאמץ עבור חדש
+    if(setupEffRatio >= newEffRatio){
+      // הקמה יעיל יותר - לוקחים כמה שאפשר
+      smartSetup = Math.min(setupClients, gap/profitPerSetup);
+      const remaining = gap - smartSetup*profitPerSetup;
+      smartNew = Math.max(0, remaining/profitPerNew);
+    } else {
+      // חדשים יעיל יותר (נדיר) - אבל עדיין נציע איזון 70% חדש / 30% הקמה
+      smartSetup = Math.min(setupClients, gap*0.3/profitPerSetup);
+      const remaining = gap - smartSetup*profitPerSetup;
+      smartNew = Math.max(0, remaining/profitPerNew);
+    }
+  }
+  const smartTotalEffort = smartSetup + smartNew*3;
+
+  // === נבנה כרטיסים ===
+  const cards = [];
+
+  // אופציה 2: רק הקמה
+  if(setupOnlyPossible){
+    cards.push({
+      color: 'green', icon: 'repeat',
+      title: 'רק לקוחות מההקמה',
+      tag: 'אופציה קלה',
+      tagColor: 'green',
+      detail: `קדם <b>${fmt1(setupOnlyNeeded)}</b> מתוך ${setupClients} הלקוחות בהקמה לריטיינר → יסגור את כל הפער של ${money(gap)}₪.`,
+      stats: [
+        ['לקוחות מההקמה', fmt1(setupOnlyNeeded)],
+        ['מחזור צפוי', money(setupOnlyRevenue)+'₪'],
+        ['רווח לפי הפירוק', money(setupOnlyNeeded*profitPerSetup)+'₪'],
+      ],
+    });
+  }
+
+  // אופציה 3: כל ההקמה + חדשים להשלמה
+  if(setupClients>0){
+    cards.push({
+      color: 'amber', icon: 'flag',
+      title: 'כל ההקמה + השלמה מחדשים',
+      tag: setupOnlyPossible ? '' : 'אופציה ראשית מומלצת',
+      tagColor: 'amber',
+      detail: `קדם את כל <b>${setupClients}</b> הלקוחות בהקמה (= ${money(profitFromAllSetup)}₪ רווח) ${remainingGapAfterAllSetup>0 ? `+ גייס עוד <b>${fmt1(newToCompleteSetup)}</b> חדשים להשלמת הפער` : `— זה לבדו ${profitFromAllSetup>=gap?'עובר':'כמעט עובר'} את היעד`}.`,
+      stats: [
+        ['מההקמה', fmt1(setupClients)],
+        ['חדשים', fmt1(newToCompleteSetup)],
+        ['רווח צפוי', money(profitFromAllSetup + newToCompleteSetup*profitPerNew)+'₪'],
+      ],
+    });
+  }
+
+  // אופציה 4: שילוב חכם
+  if(profitPerSetup>0 && profitPerNew>0 && (smartSetup>0 || smartNew>0)){
+    cards.push({
+      color: 'blue', icon: 'star',
+      title: 'שילוב חכם — הפתרון הקל ביותר',
+      tag: 'מאמץ מינימלי',
+      tagColor: 'blue',
+      detail: `המאזן הכי קל: <b>${fmt1(smartSetup)}</b> מההקמה + <b>${fmt1(smartNew)}</b> חדשים. (יחס מאמץ: לקוח-הקמה = 1, לקוח-חדש = 3)`,
+      stats: [
+        ['מההקמה', fmt1(smartSetup)],
+        ['חדשים', fmt1(smartNew)],
+        ['רווח צפוי', money(smartSetup*profitPerSetup + smartNew*profitPerNew)+'₪'],
+      ],
+    });
+  }
+
+  // הודעה אם 2 לא אפשרי - רומז על אופציה 5 שעוד לא קיימת
+  const noEnoughSetup = !setupOnlyPossible;
+  const warningRow = noEnoughSetup ? `
+    <div style="margin-top:14px;padding:11px 14px;background:rgba(247,184,1,.08);border:1px solid rgba(247,184,1,.25);border-radius:8px;font-size:12.5px;color:var(--txt-dim);line-height:1.6">
+      <b style="color:var(--amber)">לקוחות ההקמה לא מספיקים לסגור את היעד לבד.</b> דרושים ${fmt1(setupOnlyNeeded)} ויש רק ${setupClients}. בעתיד נציע גם אופציה של החזרת לקוחות שעזבו — כשנוסיף את הנתונים הרלוונטיים מהמאנדיי.
+    </div>` : '';
+
+  el.innerHTML = `<div class="card">
+    <div class="card-h">
+      <h3>דרכים נוספות להגיע ליעד — דרך לקוחות בהקמה</h3>
+      <span class="sub">${setupClients} לקוחות כרגע בהקמה, ${money(s.setupRetainers)}₪ ריטיינרים, ${money(s.setupRemaining)}₪ שנותר להשלים</span>
+    </div>
+    <p style="font-size:13px;color:var(--txt-dim);margin-bottom:14px;line-height:1.6">
+      פער מהבסיס ליעד: <b style="color:var(--txt)">${money(gap)}₪</b>. כל לקוח שמקודם מההקמה לריטיינר = <b>${money(profitPerSetup)}₪</b> רווח (לעומת ${money(profitPerNew)}₪ ללקוח חדש — אבל בלי עלות שיווק ועמלת מכירה מלאה).
+    </p>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${cards.map(c => `
+        <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:14px">
+          <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+            <div style="background:var(--${c.color}-soft);color:${COLORS[c.color]};width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${svg(c.icon)}</div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                <div style="font-weight:700;font-size:14.5px">${c.title}</div>
+                ${c.tag ? `<span class="tag ${c.tagColor}">${c.tag}</span>` : ''}
+              </div>
+              <div style="font-size:13px;color:var(--txt-dim);line-height:1.6">${c.detail}</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(${c.stats.length},1fr);gap:8px;margin-right:46px">
+            ${c.stats.map(([label,value]) => `
+              <div style="background:var(--bg-1);border:1px solid var(--line-soft);border-radius:8px;padding:8px 10px">
+                <div style="font-size:10.5px;color:var(--txt-faint);margin-bottom:2px">${label}</div>
+                <div style="font-family:'Rubik';font-weight:700;font-size:14px;direction:ltr;text-align:right">${value}</div>
+              </div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>
+    ${warningRow}
+  </div>`;
+}
+
 function goalQuick(plan){
   const baseProfit = monthlyProfitFromNewClients(0).monthlyOperating;
   const alreadyCovered = plan.clients<=0 && state.goalProfit<=baseProfit;
@@ -1572,6 +1758,62 @@ function renderRecommendations(projOperating, goal, daysLeft, closes, leads, day
       detail:`<b>${repsNeeded}</b> ${repsNeeded>1?'אנשי':'איש'} מכירות ${repsNeeded>1?'נוספים':'נוסף'} ${repsNeeded>1?'יסגרו':'יסגור'} את הפער (כל איש מכירות נוסף = +${fmt1(closesPerRepRemaining)} עסקאות עד סוף החודש באחוז המרה נוכחי)`,
       warning: !realistic ? `${repsNeeded} אנשי מכירות זה הרבה לזמן כזה קצר — קשה לגייס ולהכניס מהר` : '',
     });
+  }
+
+  // ו. תקדם לקוחות מההקמה לריטיינר (רק אם יש נתוני הקמה)
+  const setupClients = s.setupClients||0;
+  if(setupClients>0){
+    const profitPerSetup = profitFromOneSetupClient(s);
+    if(profitPerSetup>0){
+      const setupNeeded = gap/profitPerSetup;
+      const enoughInSetup = setupNeeded <= setupClients;
+      // ו.1 - רק מההקמה
+      if(enoughInSetup){
+        recs.push({
+          icon:'repeat', color:'green', realistic: true,
+          title:'קדם לקוחות מההקמה לריטיינר',
+          detail:`קדם <b>${fmt1(setupNeeded)}</b> מתוך ${setupClients} הלקוחות בהקמה → יסגור את כל הפער של ${money(gap)}₪. כל לקוח שמקודם = ${money(profitPerSetup)}₪ רווח (בלי שיווק ועם עמלה חלקית).`,
+          warning: '',
+        });
+      } else {
+        // אין מספיק בהקמה - נציע שילוב: כל ההקמה + השלמה מחדשים/קצב
+        const fromAllSetup = setupClients * profitPerSetup;
+        const remainingGap = gap - fromAllSetup;
+        const newToComplete = profitPerNewClient>0 ? remainingGap/profitPerNewClient : Infinity;
+        if(isFinite(newToComplete) && newToComplete>0){
+          recs.push({
+            icon:'repeat', color:'green', realistic: true,
+            title:'שילוב: כל ההקמה + השלמה מחדשים',
+            detail:`קדם את כל <b>${setupClients}</b> הלקוחות בהקמה (= ${money(fromAllSetup)}₪) + סגור עוד <b>${fmt1(newToComplete)}</b> לקוחות חדשים. סך הכל יסגור את הפער של ${money(gap)}₪.`,
+            warning: '',
+          });
+        }
+      }
+      // ו.2 - שילוב חכם 1:3 (תמיד יוצג כאופציה נפרדת אם יש בהקמה)
+      // מאמץ: setupTaken×1 + newTaken×3, בכפוף לכך שיסגרו את הפער
+      let smartSetup = 0, smartNew = 0;
+      const setupEffRatio = profitPerSetup / 1;
+      const newEffRatio = profitPerNewClient / 3;
+      if(setupEffRatio >= newEffRatio){
+        smartSetup = Math.min(setupClients, gap/profitPerSetup);
+        smartNew = Math.max(0, (gap - smartSetup*profitPerSetup)/profitPerNewClient);
+      } else {
+        smartSetup = Math.min(setupClients, gap*0.3/profitPerSetup);
+        smartNew = Math.max(0, (gap - smartSetup*profitPerSetup)/profitPerNewClient);
+      }
+      // נציג רק אם השילוב שונה ממה שהוצע למעלה
+      const sameAsAbove = enoughInSetup
+        ? Math.abs(smartNew)<0.1
+        : (Math.abs(smartSetup-setupClients)<0.1);
+      if(!sameAsAbove && (smartSetup>0 || smartNew>0)){
+        recs.push({
+          icon:'star', color:'blue', realistic: true,
+          title:'שילוב חכם — הפתרון הקל ביותר',
+          detail:`<b>${fmt1(smartSetup)}</b> מההקמה + <b>${fmt1(smartNew)}</b> חדשים (יחס מאמץ של 1:3 — הקמה קלה יותר). סך רווח: ${money(smartSetup*profitPerSetup + smartNew*profitPerNewClient)}₪.`,
+          warning: '',
+        });
+      }
+    }
   }
 
   if(!recs.length) return '';
@@ -3221,6 +3463,11 @@ function recomputeCoreFromMonday(){
     setIfNum('churnRate', churn);
     if(churn>0) setIfNum('avgMonths', 100/churn);
   }
+  // === שדות הקמה - מהחודש הנוכחי בלבד ===
+  // אם null/undefined במאנדיי, נאפס ל-0 (אין נתוני הקמה זמינים)
+  state.setupClients = (data.current.setupClients!=null && !isNaN(data.current.setupClients)) ? data.current.setupClients : 0;
+  state.setupRetainers = (data.current.setupRetainers!=null && !isNaN(data.current.setupRetainers)) ? data.current.setupRetainers : 0;
+  state.setupRemaining = (data.current.setupRemaining!=null && !isNaN(data.current.setupRemaining)) ? data.current.setupRemaining : 0;
 }
 
 function changeChurnMonthsBack(val){
