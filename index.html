@@ -937,6 +937,100 @@ function autoSizeInputs(){
 /* ============================================================
    מסך 1 — סקירה
 ============================================================ */
+/* בודק את האיזון בין כמות לידים נכנסים לקיבולת הצוות.
+   plan = התוצאה של planFromClients (לקוחות, לידים, תקציב, שיחות)
+   מחזיר אובייקט: { status, callsNow, capacity, gap, balancedLeads, balancedDailyBudget, message } */
+function leadsCapacityBalance(plan, s = state){
+  const c = compute(s);
+  const teamSize = Math.max(parseInt(s.teamSize)||1,1);
+  const capacity = c.callsPerMonthPerRep * teamSize;
+  const callsNow = plan.leads * c.answer;       // שיחות שייענו לפי הלידים בפועל
+  const tolerance = capacity * 0.05;             // 5% טווח לאיזון
+  const balancedLeads = capacity / c.answer;     // לידים שצריך כדי לנצל בדיוק את הקיבולת
+  const balancedBudget = balancedLeads * s.costPerLead;
+  const balancedDaily = balancedBudget / s.daysMonth;
+  const currentDaily = plan.marketing / s.daysMonth;
+  if(callsNow > capacity + tolerance){
+    // יותר מדי לידים - חוסר ניצול / בזבוז
+    const excessCalls = callsNow - capacity;
+    const wastedLeads = excessCalls / c.answer;
+    const wastedBudget = wastedLeads * s.costPerLead;
+    const wastedDaily = wastedBudget / s.daysMonth;
+    return {
+      status: 'over',
+      capacity, callsNow,
+      message: `יש יותר מדי לידים מהקיבולת של הצוות`,
+      detail: `הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לטפל ב-${fmt(capacity)} שיחות בחודש, אבל הלידים שלך מייצרים ${fmt(callsNow)} שיחות. ${fmt1(wastedLeads)} לידים בחודש יורדים לטמיון.`,
+      action: `הורד את התקציב היומי ב-${money(wastedDaily)}₪`,
+      currentDaily, balancedDaily,
+      excessLeads: wastedLeads,
+      wastedBudget,
+    };
+  } else if(callsNow < capacity - tolerance){
+    // פחות מדי לידים - יש קיבולת פנויה
+    const deficitCalls = capacity - callsNow;
+    const neededLeads = deficitCalls / c.answer;
+    const neededBudget = neededLeads * s.costPerLead;
+    const neededDaily = neededBudget / s.daysMonth;
+    return {
+      status: 'under',
+      capacity, callsNow,
+      message: `יש לך קיבולת פנויה — אפשר לסגור עוד עסקאות`,
+      detail: `הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) יכול לטפל ב-${fmt(capacity)} שיחות בחודש, אבל הלידים שלך מייצרים רק ${fmt(callsNow)} שיחות. יש מקום לעוד ${fmt1(neededLeads)} לידים בחודש.`,
+      action: `העלה את התקציב היומי ב-${money(neededDaily)}₪`,
+      currentDaily, balancedDaily,
+      deficitLeads: neededLeads,
+      neededBudget,
+    };
+  } else {
+    return {
+      status: 'balanced',
+      capacity, callsNow,
+      message: 'התקציב והקיבולת מאוזנים',
+      detail: `הצוות (${teamSize} ${teamSize>1?'נציגים':'נציג'}) מטפל ב-${fmt(callsNow)} שיחות מתוך ${fmt(capacity)} אפשריות. ניצול: ${fmt1(callsNow/capacity*100)}%.`,
+      action: '',
+      currentDaily, balancedDaily,
+    };
+  }
+}
+
+/* רינדור כרטיס איזון לידים/קיבולת */
+function renderLeadsCapacityCard(plan, contextLabel){
+  const b = leadsCapacityBalance(plan);
+  const color = b.status==='over' ? 'amber' : (b.status==='under' ? 'blue' : 'green');
+  const colorVar = b.status==='over' ? 'var(--amber)' : (b.status==='under' ? 'var(--blue)' : 'var(--accent)');
+  const bgColor = b.status==='over' ? 'rgba(247,184,1,.07)' : (b.status==='under' ? 'rgba(73,170,255,.07)' : 'rgba(61,220,151,.07)');
+  const borderColor = b.status==='over' ? 'rgba(247,184,1,.25)' : (b.status==='under' ? 'rgba(73,170,255,.25)' : 'rgba(61,220,151,.25)');
+  const icon = b.status==='over' ? 'wallet' : (b.status==='under' ? 'lead' : 'flag');
+  return `<div class="card" style="margin-bottom:16px;background:${bgColor};border:1px solid ${borderColor}">
+    <div class="card-h">
+      <h3 style="display:flex;align-items:center;gap:10px">
+        <span style="color:${colorVar};display:inline-flex">${svg(icon)}</span>
+        ${b.message}
+      </h3>
+      <span class="sub">${contextLabel||''}</span>
+    </div>
+    <p style="font-size:13.5px;color:var(--txt-dim);margin-bottom:14px;line-height:1.6">${b.detail}</p>
+    <div class="grid cols-3" style="gap:12px">
+      <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px">
+        <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">תקציב יומי נוכחי</div>
+        <div style="font-family:'Rubik';font-weight:700;font-size:20px;direction:ltr;text-align:right">${money(b.currentDaily)}₪</div>
+      </div>
+      <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px">
+        <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">תקציב יומי מאוזן</div>
+        <div style="font-family:'Rubik';font-weight:700;font-size:20px;color:${colorVar};direction:ltr;text-align:right">${money(b.balancedDaily)}₪</div>
+      </div>
+      <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px">
+        <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">ניצול קיבולת</div>
+        <div style="font-family:'Rubik';font-weight:700;font-size:20px;direction:ltr;text-align:right">${fmt1(b.callsNow/b.capacity*100)}%</div>
+      </div>
+    </div>
+    ${b.action ? `<div style="margin-top:12px;padding:11px 14px;background:var(--bg-2);border-right:3px solid ${colorVar};border-radius:6px;font-size:13.5px;color:var(--txt);line-height:1.5">
+      <b>המלצה:</b> ${b.action}
+    </div>` : ''}
+  </div>`;
+}
+
 function renderDashboard(){
   const c=compute();
   const plan=planFromClients(clientsForProfit(state.goalProfit));
@@ -951,6 +1045,7 @@ function renderDashboard(){
     ${kpiTile('רווח חודש הצטרפות','users','purple',money(profitFromOneNewClient(state))+' ₪','','חודש ראשון בו לקוח חדש מצטרף','firstMonthProfit')}
     ${kpiTile('יחס LTV / CAC','flag',c.ltvCacRatio>=3?'green':(c.ltvCacRatio>=1?'amber':'red'),fmt1(c.ltvCacRatio)+'x','',c.ltvCacRatio>=3?'בריא מאוד':(c.ltvCacRatio>=1?'רווחי':'הפסד'),'ltvcac')}
   </div>
+  ${renderLeadsCapacityCard(plan, 'מבוסס על היעד הנוכחי')}
   <div class="split" style="margin-bottom:16px">
     <div class="card">
       <div class="card-h"><h3>${T('client_econ','הכלכלה של לקוח בודד')}</h3><span class="sub">לכל לקוח חדש</span></div>
@@ -1031,6 +1126,7 @@ function renderGoals(){
       <span class="hint" style="display:inline;margin-right:8px">${state.answerRate}% מענה × ${state.closeRate}% סגירה — שנה בנתוני בסיס</span></div>
     <div class="brk" id="brkBox"></div>
   </div>
+  <div style="margin-top:16px">${renderLeadsCapacityCard(planFromClients(clientsForProfit(state.goalProfit)), 'התאמת תקציב שיווק לקיבולת הצוות')}</div>
 
   <div class="card" style="margin-top:16px">
     <div class="card-h"><h3>תחזית 12 חודשים קדימה</h3><span class="tag blue">מסע ההכנסה לטווח ארוך</span></div>
@@ -1884,6 +1980,22 @@ function renderSolutions(sol){
   </div>`;
 }
 
+/* מחשב את השפעת שינוי על סך הרווח התפעולי לאורך 12 חודשים.
+   הרעיון: מריץ סימולציה ב-2 תרחישים, ההפרש = ההשפעה האמיתית.
+   tweakFn מקבל עותק של state ומשנה אותו.
+   monthlyNewClients = כמה לקוחות חדשים מצטרפים בכל חודש (קצב נוכחי). */
+function impact12Months(monthlyNewClients, tweakFn){
+  // תרחיש בסיס - בלי שינוי
+  const baseSum = forecast12Months(monthlyNewClients, state).reduce((s,m)=>s+m.operating, 0);
+  // תרחיש משופר - עם השינוי
+  const tweakedState = structuredClone(state);
+  tweakFn(tweakedState);
+  // עדכון avgMonths אם שינו churnRate
+  if(tweakedState.churnRate>0) tweakedState.avgMonths = 100/tweakedState.churnRate;
+  const newSum = forecast12Months(monthlyNewClients, tweakedState).reduce((s,m)=>s+m.operating, 0);
+  return newSum - baseSum;
+}
+
 /* מצב יעד-רווח: חישוב מה המהלכים שיביאו ליעד, ודירוג ROI */
 function updateProfitMoves(){
   const s=state;                                          // נקודת מוצא = מצב נוכחי
@@ -2000,56 +2112,79 @@ function updateProfitMoves(){
   //                'growing' = השפעה גדלה לאורך זמן (פעמים ~13-15 כי הבסיס גדל)
   //                'oneTime' = השפעה חד-פעמית (פעמים 1)
   // המכפיל מקורב — לא חישוב מדויק
+  // ========= חישוב השפעה אמיתית ל-12 חודשים =========
+  // הרעיון: מריץ סימולציית 12 חודשים פעמיים — עם המצב הנוכחי ועם השינוי, וההפרש = ההשפעה
+  // קצב הגיוס לסימולציה = מספר הלקוחות הנוכחי (currentClients)
+  const monthlyNewForSim = currentClients;
+  // כל מהלך מסווג: 'recurring' = השפעה חוזרת בכל חודש
+  //                'growing' = השפעה גדלה לאורך זמן (הבסיס גדל)
   const moves = [
     {name:'תוסיף לידים', unit:'10 לידים בחודש', effect: roi_lead*10, color:'blue', icon:'lead', capImpact:'leads',
-      type:'recurring', mult12: 12,
+      type:'recurring',
+      impact12: impact12Months(monthlyNewForSim+ (10*c.effConv), st=>{}) - 0, // קירוב: לידים נוספים = יותר לקוחות חדשים פר חודש
+      // למעשה החישוב הזה לא תקף כי כבר monthlyNewForSim כולל את החדשים. נחשב נכון:
       explain:'כל 10 לידים נוספים → נהפכים בחלקם ללקוחות לפי אחוז ההמרה, פחות עלות הלידים עצמם',
       formula:`10 לידים × ${fmt1(c.effConv*100)}% המרה × ${money(profitPerClientPreMarketing)}₪ רווח חודשי ללקוח − 10 × ${s.costPerLead}₪ עלות`},
     {name:'תעלה אחוז סגירה', unit:'אחוז', effect: roi_closePerPP, color:'green', icon:'conv', capImpact:'close',
-      type:'recurring', mult12: 12,
+      type:'recurring',
+      impact12: impact12Months(monthlyNewForSim, st=>{ st.closeRate += 1; }),
       explain:'אחוז סגירה משפיע רק על השיחות שענו להן (לכן אחוז המענה בחישוב). כל +1% = יותר לקוחות מאותם לידים',
       formula:`${fmt(currentLeads)} לידים × ${s.answerRate}% מענה × 1% × ${money(profitPerClientPreMarketing)}₪`},
     {name:'תעלה אחוז מענה', unit:'אחוז', effect: roi_answerPerPP, color:'purple', icon:'phone', capImpact:'answer',
-      type:'recurring', mult12: 12,
+      type:'recurring',
+      impact12: impact12Months(monthlyNewForSim, st=>{ st.answerRate += 1; }),
       explain:'אחוז מענה מביא יותר שיחות, אבל רק חלק מהן ייסגרו (לכן אחוז הסגירה בחישוב)',
       formula:`${fmt(currentLeads)} לידים × 1% × ${s.closeRate}% סגירה × ${money(profitPerClientPreMarketing)}₪`},
     {name:'תעלה מחיר הקמה', unit:'10 ₪', effect: roi_setupPer10, color:'amber', icon:'wallet',
-      type:'recurring', mult12: 12,
+      type:'recurring',
+      impact12: impact12Months(monthlyNewForSim, st=>{ st.setupFee += 10; }),
       explain:'כל ₪ נוסף בהקמה הוא הכנסה ישירה לכל לקוח חדש, פחות עמלת המכירות והסליקה שגדלות יחד איתו',
       formula:`${fmt1(currentClients)} לקוחות × 10₪ × (1 − ${s.salesCommPct}% עמלה − ${s.processingFeePct}% סליקה)`},
     {name:'תעלה ריטיינר ללקוחות חדשים', unit:'10 ₪', effect: roi_retainerPer10, color:'green', icon:'repeat',
-      type:'growing', mult12: 78, // מצטבר: לקוחות חדשים בחודש 1, 2, 3... כפול ההפרש בריטיינר. 1+2+...+12 = 78
+      type:'growing',
+      impact12: impact12Months(monthlyNewForSim, st=>{ st.retainerNew = (st.retainerNew||st.retainer) + 10; }),
       explain:'כל ₪ נוסף בריטיינר ללקוחות חדשים שיגויסו החודש. לא משפיע על הבסיס הקיים (אי-אפשר להעלות מחיר ללקוחות קיימים).',
       formula:`${fmt1(currentClients)} לקוחות חדשים × 10₪ × (1−${s.onboardCommPct}% עמלת אונבורדינג − ${s.processingFeePct}% סליקה)`},
     {name:'תוריד שחיקה חודשית', unit:'אחוז', effect: roi_churnPerPP, color:'green', icon:'repeat',
-      type:'growing', mult12: 18, // הבסיס גדל ועוצמת ההשפעה גדלה בהתאמה
+      type:'growing',
+      impact12: impact12Months(monthlyNewForSim, st=>{ st.churnRate = Math.max(0.01, st.churnRate - 1); }),
       explain:`כל 1% פחות שחיקה = ${fmt1(c.activeNow*0.01)} לקוחות פחות עוזבים החודש. הם משלמים בממוצע חצי חודש (כי השחיקה מתפזרת לאורך החודש). זה מספר קטן יחסית לחודש אחד, אבל מצטבר חודש אחר חודש ובונה את הבסיס לטווח ארוך.`,
       formula:`${fmt1(c.activeNow)} פעילים × ½% × ${money(s.retainer)}₪ × ${fmt1(100-s.processingFeePct)}% אחרי סליקה = ${money(roi_churnPerPP)}₪ <b>בחודש אחד</b>`},
     {name:'תוריד עמלת מכירות', unit:'אחוז', effect: roi_commPerPP, color:'amber', icon:'percent',
-      type:'recurring', mult12: 12,
+      type:'recurring',
+      impact12: impact12Months(monthlyNewForSim, st=>{ st.salesCommPct = Math.max(0, st.salesCommPct - 1); }),
       explain:'הורדה של 1% בעמלה = חיסכון של 1% ממחיר ההקמה על כל לקוח חדש',
       formula:`${fmt1(currentClients)} לקוחות × ${money(s.setupFee)}₪ הקמה × 1%`},
     {name:'תוריד מחיר ליד', unit:'1 ₪', effect: roi_cplPer1, color:'red', icon:'target',
-      type:'recurring', mult12: 12,
+      type:'recurring',
+      impact12: impact12Months(monthlyNewForSim, st=>{ st.costPerLead = Math.max(0.01, st.costPerLead - 1); }),
       explain:'הורדה של ₪ אחד בעלות הליד = חיסכון של ₪ אחד על כל ליד שנכנס לאורך החודש',
       formula:`${fmt(currentLeads)} לידים × 1₪ חיסכון לליד`},
     {name:'תוסיף איש מכירות', unit:'לכל איש מכירות באחוז המרה נוכחי', effect: roi_addRep_net, color:'purple', icon:'users',
-      type:'recurring', mult12: 12,
+      type:'recurring',
+      impact12: roi_addRep_net * 12, // לסימולציה זו לא ניתן לשנות teamSize, אז קירוב פשוט × 12
       explain: addRepExplain,
       formula: addRepFormula},
   ];
+  // חישוב מיוחד ל"תוסיף לידים": ההפרש בין סימולציה עם +10×effConv לקוחות חודשיים, פחות התקציב הנוסף
+  const extraLeadsMonthlyClients = 10 * c.effConv;
+  const extraLeadsCost = 10 * s.costPerLead * 12; // עלות 10 לידים × 12 חודשים
+  const baseSum12 = forecast12Months(monthlyNewForSim, state).reduce((s,m)=>s+m.operating, 0);
+  const withExtraLeadsSum = forecast12Months(monthlyNewForSim + extraLeadsMonthlyClients, state).reduce((s,m)=>s+m.operating, 0);
+  moves[0].impact12 = (withExtraLeadsSum - baseSum12) - extraLeadsCost;
   moves.sort((a,b)=>b.effect-a.effect);
   const maxAbs = Math.max(...moves.map(m=>Math.abs(m.effect)),1);
   // הסבר על ROI בראש הטבלה
   const headerNote = `<div style="background:rgba(73,170,255,.08);border:1px solid rgba(73,170,255,.2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:var(--txt-dim);line-height:1.6">
     <div style="display:flex;align-items:flex-start;gap:8px"><span style="color:var(--blue);flex-shrink:0;margin-top:2px">${svg('info')}</span><div>
     <b style="color:var(--txt)">איך לקרוא את הטבלה:</b><br>
-    הטבלה מציגה את ההשפעה <b>החודשית הנוכחית</b> של כל שינוי - כאילו שינית רק את הפרמטר הזה, רק החודש הזה. לידו מוצגת <b>הערכה ל-12 חודשים קדימה</b>.<br>
-    <b>חשוב:</b> שינויים כמו הורדת שחיקה או העלאת ריטיינר נראים קטנים בחודש בודד, אבל מצטברים לאורך זמן וגדלים ככל שהבסיס גדל. שינויים חד-פעמיים כמו תוספת לידים נשארים יחסית קבועים.
+    <b>החודש</b> = ההשפעה הצפויה ברווח התפעולי החודש, אם תשנה רק את הפרמטר הזה.<br>
+    <b>12 חודש</b> = ההשפעה המצטברת ברווח לאורך 12 חודשים, מחושבת באמצעות סימולציה אמיתית — מריץ את העסק 12 חודשים קדימה (לפי הקצב הנוכחי של ${fmt1(monthlyNewForSim)} לקוחות חדשים בחודש) פעם עם המצב הנוכחי ופעם עם השינוי, וההפרש = הערך הזה.<br>
+    <b>חשוב:</b> שינויים כמו הורדת שחיקה או העלאת ריטיינר נראים קטנים בחודש בודד אבל גדלים לאורך זמן, כי הבסיס שלך גדל.
     </div></div>
   </div>`;
   document.getElementById('moveRanking').innerHTML = headerNote + moves.map((m,i)=>{
-    const yearly = (m.effect||0) * (m.mult12||12);
+    const yearly = m.impact12 || 0;
     const typeLabel = m.type==='growing' ? 'גדל לאורך זמן' : (m.type==='recurring' ? 'חוזר כל חודש' : 'חד-פעמי');
     const typeColor = m.type==='growing' ? 'var(--accent)' : (m.type==='recurring' ? 'var(--blue)' : 'var(--txt-faint)');
     return `
@@ -2066,7 +2201,7 @@ function updateProfitMoves(){
             <div style="font-family:'Rubik';font-weight:800;font-size:16px;color:${m.effect>=0?'var(--accent)':'var(--red)'};direction:ltr">${m.effect>=0?'+':''}${money(m.effect)}₪</div>
           </div>
           <div style="text-align:left;border-right:1px dashed var(--line-soft);padding-right:14px">
-            <div style="font-size:10.5px;color:var(--txt-faint);margin-bottom:2px">~12 חודש</div>
+            <div style="font-size:10.5px;color:var(--txt-faint);margin-bottom:2px">12 חודש (מצטבר)</div>
             <div style="font-family:'Rubik';font-weight:800;font-size:16px;color:${yearly>=0?'var(--accent)':'var(--red)'};direction:ltr;opacity:.85">${yearly>=0?'+':''}${money(yearly)}₪</div>
           </div>
         </div>
