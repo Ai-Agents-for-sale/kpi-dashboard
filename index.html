@@ -1009,6 +1009,7 @@ const PAGES={
   dashboard:{title:'סקירה', icon:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>', render:renderDashboard},
   goals:{title:'יעדים', icon:ICONS.target, render:renderGoals},
   sales:{title:'מכירות', icon:ICONS.users, render:renderSales},
+  insights:{title:'תובנות', icon:'<circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/>', render:renderInsights},
   scenarios:{title:'סימולטור', icon:'<path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/>', render:renderScenarios},
   settings:{title:'נתוני בסיס', icon:'<circle cx="12" cy="12" r="3"/>', render:renderSettings},
 };
@@ -2657,6 +2658,502 @@ const LOCK_INFO={
   invest:{name:'מצב השקעה (תקציב חופשי)',desc:'כאן אתה גורר את תקציב השיווק בעצמך, ורואה כמה לידים, לקוחות, מחזור ורווח יוצאים ממנו. כולל בדיקה אם צוות המכירות בכלל יכול לטפל בכמות הלידים החדשה — ואם לא, מה צריך לעשות (יותר שעות או שיחה קצרה יותר).',when:'מתי להשתמש: כששוקלים כמה להשקיע בשיווק ורוצים לראות את התשואה — כמה לקוחות ורווח כל שקל שיווק מביא, והאם הצוות מסוגל לעמוד בעומס הלידים.'},
   profitMoves:{name:'יעד רווח — איזה מהלך הכי משתלם?',desc:'אתה קובע יעד רווח. המערכת מחשבת לבד מה המהלכים האפשריים שיביאו אותך אליו — יותר לידים, אחוז המרה גבוה יותר, מחיר הקמה גבוה יותר, או הפחתה בשחיקה. כל מהלך לחוד, עם דירוג של מה הכי יעיל פר יחידת מאמץ.',when:'מתי להשתמש: כשרוצים לדעת בתכלס איזה מהלך הכי שווה לעשות עכשיו כדי להעלות את הרווח. זה הסימולטור הכי שימושי ליום-יום.'},
 };
+
+/* ============================================================
+   מסך תובנות והמלצות - זיהוי מהלכים, ניתוח, המלצות
+============================================================ */
+
+/* מצב מקומי למסך תובנות - נשמר במצב הגלובלי */
+function ensureInsightsState(){
+  if(!state.insights) state.insights = {};
+  if(state.insights.moveDetectionMonthsBack == null) state.insights.moveDetectionMonthsBack = 6;
+  if(state.insights.moveBeforeAfterWindow == null) state.insights.moveBeforeAfterWindow = 3;
+  if(state.insights.moveThreshold == null) state.insights.moveThreshold = 15; // אחוז שינוי
+  if(state.insights.insightsCompareWindow == null) state.insights.insightsCompareWindow = 3;
+  if(state.insights.insightsTrendWindow == null) state.insights.insightsTrendWindow = 3;
+  if(state.insights.recoForwardMonths == null) state.insights.recoForwardMonths = 6;
+  if(state.insights.recoAvgWindow == null) state.insights.recoAvgWindow = 3;
+}
+
+/* פרמטרים שהמערכת בודקת לזיהוי מהלכים */
+const TRACKED_PARAMS = [
+  {key:'setupAvg', label:'מחיר הקמה ממוצע', icon:'wallet', unit:'₪', 
+   getter:m=>m.setupAvg, betterIf:'higher'},
+  {key:'salesCommPct', label:'אחוז עמלת מכירה', icon:'percent', unit:'%',
+   getter:m=>m.salesCommPct, betterIf:'lower'},
+  {key:'retainerAvgActive', label:'ריטיינר ממוצע פעילים', icon:'wallet', unit:'₪',
+   getter:m=>m.retainerAvgActive, betterIf:'higher'},
+  {key:'closes', label:'כמות סגירות', icon:'users', unit:'',
+   getter:m=>m.closes, betterIf:'higher'},
+  {key:'closeRate', label:'אחוז סגירה', icon:'target', unit:'%',
+   getter:m=>m.closes && m.leads ? (m.closes/m.leads)*100 : null, betterIf:'higher'},
+  {key:'budget', label:'תקציב שיווק', icon:'wallet', unit:'₪',
+   getter:m=>m.budget, betterIf:'lower'},
+  {key:'churnRate', label:'אחוז שחיקה', icon:'trend', unit:'%',
+   getter:m=>m.churn && m.activeStartMonth ? (m.churn/m.activeStartMonth)*100 : null, betterIf:'lower'},
+];
+
+/* זיהוי מהלכים: עוברים על היסטוריה ומחפשים שינויים של יותר מ-threshold% */
+function detectMoves(){
+  ensureInsightsState();
+  const monthsBack = state.insights.moveDetectionMonthsBack;
+  const threshold = state.insights.moveThreshold;
+  const allMonths = [];
+  if(state.mondayRaw && state.mondayRaw.current) allMonths.push({...state.mondayRaw.current, monthName:'נוכחי'});
+  if(state.mondayRaw && state.mondayRaw.history){
+    state.mondayRaw.history.forEach((m,i)=> allMonths.push({...m, monthName:`לפני ${i+1}`}));
+  }
+  const slice = allMonths.slice(0, monthsBack+1);
+  if(slice.length < 2) return [];
+  const moves = [];
+  // עוברים מהחודש הישן ביותר לחדש ביותר - מחפשים שינויים בין חודשים סמוכים
+  for(let i = slice.length-1; i > 0; i--){
+    const prev = slice[i];   // ישן יותר
+    const curr = slice[i-1]; // חדש יותר
+    TRACKED_PARAMS.forEach(p => {
+      const prevVal = p.getter(prev);
+      const currVal = p.getter(curr);
+      if(prevVal==null || currVal==null || prevVal===0) return;
+      const pctChange = ((currVal - prevVal) / prevVal) * 100;
+      if(Math.abs(pctChange) >= threshold){
+        moves.push({
+          param: p,
+          fromValue: prevVal,
+          toValue: currVal,
+          pctChange,
+          monthIndex: i-1,  // אינדקס של החודש שבו זוהה השינוי
+          monthName: curr.monthName,
+          previousMonthName: prev.monthName,
+        });
+      }
+    });
+  }
+  return moves;
+}
+
+/* ניתוח אם מהלך השתלם: השוואת לפני ואחרי */
+function analyzeMoveImpact(move){
+  const window = state.insights.moveBeforeAfterWindow;
+  const allMonths = [];
+  if(state.mondayRaw && state.mondayRaw.current) allMonths.push(state.mondayRaw.current);
+  if(state.mondayRaw && state.mondayRaw.history){
+    state.mondayRaw.history.forEach(m => allMonths.push(m));
+  }
+  const moveIdx = move.monthIndex;
+  // "לפני" = window חודשים לפני המהלך (כולל החודש שלפני המהלך עצמו)
+  const before = allMonths.slice(moveIdx+1, moveIdx+1+window);
+  // "אחרי" = window חודשים החל מהמהלך (כולל החודש שהמהלך התרחש בו)
+  const after = allMonths.slice(Math.max(0, moveIdx-window+1), moveIdx+1);
+  if(before.length === 0 || after.length === 0) return null;
+  const avg = (arr, getter) => {
+    const vals = arr.map(getter).filter(v=>v!=null && !isNaN(v));
+    if(!vals.length) return 0;
+    return vals.reduce((a,b)=>a+b,0)/vals.length;
+  };
+  // מטריקות מפתח להשוואה
+  const metrics = {
+    closes: { before: avg(before, m=>m.closes), after: avg(after, m=>m.closes), label:'סגירות' },
+    setupAvg: { before: avg(before, m=>m.setupAvg), after: avg(after, m=>m.setupAvg), label:'מחיר הקמה' },
+    revenue: { before: avg(before, m=>(m.retainersIncomeSoFar||0)+(m.setupIncomeSoFar||0)),
+               after: avg(after, m=>(m.retainersIncomeSoFar||0)+(m.setupIncomeSoFar||0)), label:'מחזור' },
+    churnRate: { before: avg(before, m=>m.churn&&m.activeStartMonth?(m.churn/m.activeStartMonth)*100:0),
+                 after: avg(after, m=>m.churn&&m.activeStartMonth?(m.churn/m.activeStartMonth)*100:0), label:'אחוז שחיקה' },
+    activeEnd: { before: avg(before, m=>m.activeEndMonth), after: avg(after, m=>m.activeEndMonth), label:'לקוחות פעילים' },
+  };
+  // חישוב מצטבר ל-12 חודשים: נחשב LTV של לקוח ממוצע לפני ואחרי, ונכפיל בקצב הגיוס
+  const c = compute(state);
+  const ltvBefore = computeLTVForScenario({
+    setupFee: metrics.setupAvg.before,
+    salesCommPct: c.commPct*100,
+    retainer: metrics.revenue.before > 0 ? state.retainer : state.retainer,
+    churnRate: metrics.churnRate.before,
+    closesPerMonth: metrics.closes.before,
+  });
+  const ltvAfter = computeLTVForScenario({
+    setupFee: metrics.setupAvg.after,
+    salesCommPct: c.commPct*100,
+    retainer: state.retainer,
+    churnRate: metrics.churnRate.after,
+    closesPerMonth: metrics.closes.after,
+  });
+  // נקודת איזון
+  const monthlyDiff = ltvAfter.monthlyContribution - ltvBefore.monthlyContribution;
+  const initialDiff = ltvAfter.firstMonthRevenue - ltvBefore.firstMonthRevenue;
+  let breakEvenMonths = null;
+  if(monthlyDiff > 0 && initialDiff < 0){
+    breakEvenMonths = Math.abs(initialDiff) / monthlyDiff;
+  } else if(monthlyDiff >= 0 && initialDiff >= 0){
+    breakEvenMonths = 0; // משתלם מההתחלה
+  } else if(monthlyDiff < 0){
+    breakEvenMonths = -1; // לעולם לא משתלם
+  }
+  return { before, after, metrics, ltvBefore, ltvAfter, breakEvenMonths, monthlyDiff, initialDiff };
+}
+
+/* חישוב LTV של תרחיש */
+function computeLTVForScenario({setupFee, salesCommPct, retainer, churnRate, closesPerMonth}){
+  const c = compute(state);
+  const setupNet = setupFee * (1 - salesCommPct/100);
+  const retainerNet = retainer * (1 - c.onbCommPct - c.procPct);
+  const avgMonths = churnRate > 0 ? 100/churnRate : 60;
+  const ltvPerClient = setupNet + (retainerNet * avgMonths);
+  const firstMonthRevenue = setupNet * closesPerMonth;
+  const monthlyContribution = retainerNet * closesPerMonth;  // הריטיינר שמצטבר כל חודש
+  return { ltvPerClient, firstMonthRevenue, monthlyContribution, avgMonths };
+}
+
+/* תובנות על המצב הנוכחי - חולשות וחוזקות */
+function generateInsights(){
+  ensureInsightsState();
+  const compareWindow = state.insights.insightsCompareWindow;
+  const trendWindow = state.insights.insightsTrendWindow;
+  const insights = { strengths: [], weaknesses: [] };
+  if(!state.mondayRaw || !state.mondayRaw.history || state.mondayRaw.history.length < 1) return insights;
+  const current = state.mondayRaw.current;
+  const hist = state.mondayRaw.history;
+  // ממוצע השוואה
+  const compareSlice = hist.slice(0, compareWindow);
+  const avg = (arr, getter) => {
+    const vals = arr.map(getter).filter(v=>v!=null && !isNaN(v));
+    if(!vals.length) return 0;
+    return vals.reduce((a,b)=>a+b,0)/vals.length;
+  };
+  const metrics = [
+    {name:'אחוז סגירה', getter:m=>m.closes && m.leads ? (m.closes/m.leads)*100 : null, betterIf:'higher', unit:'%', precision:1},
+    {name:'אחוז שחיקה', getter:m=>m.churn && m.activeStartMonth ? (m.churn/m.activeStartMonth)*100 : null, betterIf:'lower', unit:'%', precision:1},
+    {name:'ריטיינר ממוצע', getter:m=>m.retainerAvgActive, betterIf:'higher', unit:'₪', precision:0},
+    {name:'מחיר הקמה ממוצע', getter:m=>m.setupAvg, betterIf:'higher', unit:'₪', precision:0},
+    {name:'כמות סגירות', getter:m=>m.closes, betterIf:'higher', unit:'', precision:1},
+    {name:'כמות לידים', getter:m=>m.leads, betterIf:'higher', unit:'', precision:0},
+    {name:'מחיר ליד', getter:m=>m.leads&&m.budget?m.budget/m.leads:null, betterIf:'lower', unit:'₪', precision:1},
+    {name:'לקוחות שהצטרפו לריטיינר', getter:m=>m.joinedRetainer, betterIf:'higher', unit:'', precision:0},
+  ];
+  metrics.forEach(metric => {
+    const currVal = metric.getter(current);
+    const avgVal = avg(compareSlice, metric.getter);
+    if(currVal==null || avgVal==null || avgVal===0) return;
+    const pctChange = ((currVal - avgVal) / avgVal) * 100;
+    if(Math.abs(pctChange) < 5) return; // לא משמעותי
+    const isImprovement = metric.betterIf === 'higher' ? pctChange > 0 : pctChange < 0;
+    const target = isImprovement ? insights.strengths : insights.weaknesses;
+    target.push({
+      metric: metric.name,
+      currentValue: currVal,
+      averageValue: avgVal,
+      pctChange,
+      unit: metric.unit,
+      precision: metric.precision,
+      betterIf: metric.betterIf,
+    });
+  });
+  // מגמות (ביחס לכל ההיסטוריה - trendWindow)
+  const trendSlice = hist.slice(0, trendWindow);
+  if(trendSlice.length >= 2){
+    metrics.forEach(metric => {
+      const firstVal = metric.getter(trendSlice[trendSlice.length-1]);
+      const lastVal = metric.getter(trendSlice[0]);
+      if(firstVal==null || lastVal==null || firstVal===0) return;
+      const trendPct = ((lastVal - firstVal) / firstVal) * 100;
+      if(Math.abs(trendPct) < 10) return;
+      const isImprovingTrend = metric.betterIf === 'higher' ? trendPct > 0 : trendPct < 0;
+      const target = isImprovingTrend ? insights.strengths : insights.weaknesses;
+      // לא נכפיל אם כבר קיים
+      if(!target.find(x => x.metric === metric.name)){
+        target.push({
+          metric: metric.name + ' (מגמה)',
+          currentValue: lastVal,
+          averageValue: firstVal,
+          pctChange: trendPct,
+          unit: metric.unit,
+          precision: metric.precision,
+          betterIf: metric.betterIf,
+          isTrend: true,
+        });
+      }
+    });
+  }
+  return insights;
+}
+
+/* המלצות למהלכים עתידיים */
+function generateRecommendations(){
+  ensureInsightsState();
+  const recos = [];
+  const c = compute(state);
+  const forwardMonths = state.insights.recoForwardMonths;
+  const avgWindow = state.insights.recoAvgWindow;
+
+  // === המלצה 1: שיפור אחוז סגירה ===
+  // אם אחוז הסגירה נמוך, חישוב כמה רווח יוסיף שיפור של 5%
+  const currentCloseRate = c.close*100;
+  if(currentCloseRate < 15){
+    const sim = structuredClone(state);
+    sim.closeRate = currentCloseRate + 5;
+    const profitBoost = profitNextMonth(sim, avgWindow, 1).operating - profitNextMonth(state, avgWindow, 1).operating;
+    recos.push({
+      title:'שפר את אחוז הסגירה',
+      desc:`אחוז הסגירה הנוכחי שלך הוא ${fmt1(currentCloseRate)}%. עלייה ל-${fmt1(currentCloseRate+5)}% (תוספת 5 נקודות) תוסיף לרווח החודשי כ-${money(profitBoost)}₪`,
+      impact:profitBoost,
+      action:'אימון נציגים, חידוד הצעת מחיר, שיפור התסריט'
+    });
+  }
+
+  // === המלצה 2: ניסוי בהורדת הקמה ===
+  // אם הצלחת בעבר עם הקמה נמוכה, אולי תרצה לחזור או להוריד עוד
+  if(state.setupFee > 400){
+    const reducedSetup = state.setupFee * 0.7;  // ירידה של 30%
+    // הנחה: כל 100₪ ירידה בהקמה = 10% עליה בסגירות
+    const setupDropPct = 0.3;
+    const closesUpliftPct = setupDropPct * 0.33;  // קונסרבטיבי
+    const sim = structuredClone(state);
+    sim.setupFee = reducedSetup;
+    const before = profitNextMonth(state, avgWindow, forwardMonths).operating;
+    const baseAfter = profitNextMonth(sim, avgWindow, forwardMonths).operating;
+    // והוספת הסגירות הנוספות
+    const extraClosesPerMonth = Math.round(c.close * state.leads * closesUpliftPct);
+    recos.push({
+      title:`הורד מחיר הקמה ל-${money(reducedSetup)}₪`,
+      desc:`אם תוריד את ההקמה ב-30% (מ-${money(state.setupFee)} ל-${money(reducedSetup)}), בהנחה שזה יביא כ-${closesUpliftPct*100}% יותר סגירות, הרווח בעוד ${forwardMonths} חודשים יהיה ${money(baseAfter)}₪ במקום ${money(before)}₪.`,
+      impact:baseAfter - before,
+      action:`בדוק את התוצאות שלך מהמהלך הקודם בחלק "מהלכים שזוהו" למעלה`
+    });
+  }
+
+  // === המלצה 3: העלאת ריטיינר חדשים ===
+  if(c.retainerForNew < 400){
+    const newRetainer = c.retainerForNew * 1.15;  // עליה של 15%
+    const sim = structuredClone(state);
+    sim.retainerNew = newRetainer;
+    const before = profitNextMonth(state, avgWindow, forwardMonths).operating;
+    const after = profitNextMonth(sim, avgWindow, forwardMonths).operating;
+    recos.push({
+      title:`העלה ריטיינר ללקוחות חדשים ל-${money(newRetainer)}₪`,
+      desc:`עליה של 15% במחיר הריטיינר ללקוחות חדשים (מ-${money(c.retainerForNew)} ל-${money(newRetainer)}). אם הסגירות יישארו בקצב הנוכחי, הרווח בעוד ${forwardMonths} חודשים יקפוץ ל-${money(after)}₪ במקום ${money(before)}₪.`,
+      impact:after - before,
+      action:'בדוק עם 2-3 לקוחות פוטנציאליים האם המחיר החדש סביר עבורם לפני המעבר הכולל'
+    });
+  }
+
+  // === המלצה 4: תוספת נציג מכירות ===
+  // אם הקיבולת מוגבלת
+  const monthlyCapacity = state.teamSize * state.workHoursPerDay * state.daysMonth / (state.callMinutes/60);
+  const monthlyDemand = state.leads;
+  if(monthlyDemand > monthlyCapacity * 0.85){
+    recos.push({
+      title:'הוסף נציג מכירות לצוות',
+      desc:`הצוות הנוכחי (${state.teamSize} נציגים) מטפל בכמעט מלוא הקיבולת. תוספת נציג תאפשר לטפל בעוד ${Math.round(state.workHoursPerDay*state.daysMonth*60/state.callMinutes)} שיחות בחודש = עוד ${Math.round(state.workHoursPerDay*state.daysMonth*60/state.callMinutes*c.close)} סגירות פוטנציאליות.`,
+      impact:Math.round(state.workHoursPerDay*state.daysMonth*60/state.callMinutes*c.close) * profitFromOneNewClient(),
+      action:'בדוק זמינות מועמדים, חישוב עלות השכר מול הרווח הנוסף הצפוי'
+    });
+  }
+  // מיון לפי ההשפעה
+  recos.sort((a,b)=>b.impact - a.impact);
+  return recos;
+}
+
+/* מטא: זיהוי שינויים בכל חודש לפי האייקון של תזוזה */
+function moveSymbol(pctChange, betterIf){
+  const isPositive = pctChange > 0;
+  const isImprovement = betterIf === 'higher' ? isPositive : !isPositive;
+  return isImprovement ? '↑' : '↓';
+}
+
+/* ============================================================
+   רינדור מסך תובנות
+============================================================ */
+function renderInsights(){
+  ensureInsightsState();
+  const isn = state.insights;
+  const totalHistory = (state.mondayRaw && state.mondayRaw.history) ? state.mondayRaw.history.length + 1 : 1;
+  const monthOpts = (current, max) => {
+    let opts = '';
+    for(let i=1; i<=Math.min(max, 12); i++){
+      const sel = current===i ? 'selected' : '';
+      opts += `<option value="${i}" ${sel}>${i===1?'חודש אחרון':i+' חודשים'}</option>`;
+    }
+    return opts;
+  };
+
+  // === חלק 1: מהלכים שזוהו ===
+  const moves = detectMoves();
+  const movesByMonth = {};
+  moves.forEach(mv => {
+    if(!movesByMonth[mv.monthName]) movesByMonth[mv.monthName] = [];
+    movesByMonth[mv.monthName].push(mv);
+  });
+
+  let movesHtml = '';
+  if(moves.length === 0){
+    movesHtml = `<div class="hint" style="padding:14px;text-align:center">לא זוהו מהלכים משמעותיים (שינוי מעל ${isn.moveThreshold}%) ב-${isn.moveDetectionMonthsBack} חודשים האחרונים. תוכל להוריד את סף הזיהוי בדרופדאון למעלה.</div>`;
+  } else {
+    movesHtml = Object.keys(movesByMonth).map(monthName => {
+      const monthMoves = movesByMonth[monthName];
+      const impactAnalysis = analyzeMoveImpact(monthMoves[0]); // ניתוח אחד לכל חודש
+      let analysisHtml = '';
+      if(impactAnalysis){
+        const m = impactAnalysis.metrics;
+        const monthlyDiffColor = impactAnalysis.monthlyDiff >= 0 ? 'var(--accent)' : 'var(--red)';
+        const breakEvenText = impactAnalysis.breakEvenMonths === 0 ? '<b style="color:var(--accent)">משתלם מהחודש הראשון</b>' :
+                              impactAnalysis.breakEvenMonths === -1 ? '<b style="color:var(--red)">לא משתלם בטווח הנראה</b>' :
+                              impactAnalysis.breakEvenMonths==null ? '—' :
+                              `<b style="color:var(--amber)">אחרי ${fmt1(impactAnalysis.breakEvenMonths)} חודשים</b>`;
+        analysisHtml = `
+          <div style="margin-top:12px;padding:12px;background:var(--bg-1);border-radius:8px">
+            <div style="font-size:12.5px;color:var(--txt-faint);margin-bottom:8px">השוואת ${isn.moveBeforeAfterWindow} חודשים לפני ואחרי</div>
+            <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+              <tr style="color:var(--txt-faint);font-size:11px">
+                <td style="padding:4px">מטריקה</td>
+                <td style="padding:4px;text-align:left">לפני</td>
+                <td style="padding:4px;text-align:left">אחרי</td>
+                <td style="padding:4px;text-align:left">שינוי</td>
+              </tr>
+              ${Object.keys(m).map(k => {
+                const v = m[k];
+                if(!v.before && !v.after) return '';
+                const pct = v.before > 0 ? ((v.after-v.before)/v.before)*100 : 0;
+                const fmt_ = k==='revenue' ? money : (k.includes('Rate')||k.includes('Pct') ? (x=>fmt1(x)+'%') : fmt1);
+                return `<tr style="border-top:1px solid var(--line-soft)">
+                  <td style="padding:6px 4px">${v.label}</td>
+                  <td style="padding:6px 4px;text-align:left;font-family:'Rubik';direction:ltr">${fmt_(v.before)}</td>
+                  <td style="padding:6px 4px;text-align:left;font-family:'Rubik';direction:ltr">${fmt_(v.after)}</td>
+                  <td style="padding:6px 4px;text-align:left;font-family:'Rubik';direction:ltr;color:${pct>=0?'var(--accent)':'var(--red)'}">${pct>=0?'+':''}${fmt1(pct)}%</td>
+                </tr>`;
+              }).join('')}
+            </table>
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:12.5px">
+              <div>נקודת איזון: ${breakEvenText}</div>
+              <div style="color:${monthlyDiffColor}">תרומה חודשית: ${impactAnalysis.monthlyDiff>=0?'+':''}${money(impactAnalysis.monthlyDiff)}₪</div>
+            </div>
+          </div>`;
+      }
+      return `<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h4 style="margin:0;font-size:14px">${monthName === 'נוכחי' ? 'חודש נוכחי' : monthName.replace('לפני', 'לפני')}</h4>
+          <span class="tag amber">${monthMoves.length} שינויים</span>
+        </div>
+        ${monthMoves.map(mv => `<div style="padding:8px 10px;background:var(--bg-1);border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:13px">
+          <div>${mv.param.label}</div>
+          <div style="font-family:'Rubik';direction:ltr">
+            <span style="color:var(--txt-faint)">${fmt1(mv.fromValue)}${mv.param.unit}</span>
+            <span style="margin:0 6px;color:${mv.pctChange>=0?'var(--accent)':'var(--red)'}">${moveSymbol(mv.pctChange, mv.param.betterIf)} ${mv.pctChange>=0?'+':''}${fmt1(mv.pctChange)}%</span>
+            <span><b>${fmt1(mv.toValue)}${mv.param.unit}</b></span>
+          </div>
+        </div>`).join('')}
+        ${analysisHtml}
+      </div>`;
+    }).join('');
+  }
+
+  // === חלק 2: תובנות על המצב הנוכחי ===
+  const insights = generateInsights();
+  const insightCard = (item, isStrength) => {
+    const color = isStrength ? 'var(--accent)' : 'var(--red)';
+    const arrow = item.pctChange >= 0 ? '↑' : '↓';
+    return `<div style="padding:10px 12px;background:var(--bg-1);border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div style="font-size:13px">${item.metric}${item.isTrend?'':''}</div>
+      <div style="font-family:'Rubik';direction:ltr;color:${color};font-size:13px">
+        ${arrow} ${item.pctChange>=0?'+':''}${fmt1(item.pctChange)}%
+      </div>
+    </div>`;
+  };
+
+  // === חלק 3: המלצות ===
+  const recos = generateRecommendations();
+  const recoCards = recos.map((r,i) => `
+    <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:14px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <h4 style="margin:0;font-size:14px">${i+1}. ${r.title}</h4>
+        ${r.impact ? `<span class="tag green">+${money(r.impact)}₪</span>` : ''}
+      </div>
+      <div style="font-size:13px;color:var(--txt-dim);line-height:1.6;margin-bottom:8px">${r.desc}</div>
+      <div style="font-size:11.5px;color:var(--txt-faint);background:var(--bg-1);padding:8px 10px;border-radius:6px"><b>איך לבצע:</b> ${r.action}</div>
+    </div>`).join('');
+
+  // === הרכבה הסופית ===
+  document.getElementById('content').innerHTML = `
+  <div class="page-head"><h1>תובנות והמלצות</h1>
+    <p>זיהוי אוטומטי של מהלכים, ניתוח חוזקות וחולשות, והמלצות מותאמות לנתונים שלך.</p>
+  </div>
+
+  <!-- חלק 1: מהלכים שזוהו -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h">
+      <h3>🔍 מהלכים שזוהו</h3>
+      <span class="sub">שינויים משמעותיים בנתונים, וניתוח אם השתלמו</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px;background:var(--bg-1);border-radius:8px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:10.5px;color:var(--txt-faint)">חפש מהלכים אחורה</label>
+        <select onchange="changeInsightsParam('moveDetectionMonthsBack', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.moveDetectionMonthsBack, totalHistory)}</select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:10.5px;color:var(--txt-faint)">חלון השוואה לפני/אחרי</label>
+        <select onchange="changeInsightsParam('moveBeforeAfterWindow', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.moveBeforeAfterWindow, totalHistory)}</select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:10.5px;color:var(--txt-faint)">סף שינוי (%)</label>
+        <input type="number" min="5" max="100" value="${isn.moveThreshold}" onchange="changeInsightsParam('moveThreshold', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px;width:70px;direction:ltr">
+      </div>
+    </div>
+    ${movesHtml}
+  </div>
+
+  <!-- חלק 2: תובנות על המצב הנוכחי -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h">
+      <h3>💡 ניתוח המצב הנוכחי</h3>
+      <span class="sub">חוזקות וחולשות ביחס להיסטוריה</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px;background:var(--bg-1);border-radius:8px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:10.5px;color:var(--txt-faint)">השווה לממוצע</label>
+        <select onchange="changeInsightsParam('insightsCompareWindow', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.insightsCompareWindow, totalHistory)}</select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:10.5px;color:var(--txt-faint)">חלון לזיהוי מגמות</label>
+        <select onchange="changeInsightsParam('insightsTrendWindow', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.insightsTrendWindow, totalHistory)}</select>
+      </div>
+    </div>
+    <div class="split">
+      <div>
+        <h4 style="margin:0 0 10px 0;font-size:13px;color:var(--accent)">✓ חוזקות</h4>
+        ${insights.strengths.length === 0 ? '<div class="hint" style="font-size:12px">לא זוהו חוזקות בולטות</div>' : insights.strengths.map(s => insightCard(s, true)).join('')}
+      </div>
+      <div>
+        <h4 style="margin:0 0 10px 0;font-size:13px;color:var(--red)">⚠ חולשות</h4>
+        ${insights.weaknesses.length === 0 ? '<div class="hint" style="font-size:12px">לא זוהו חולשות בולטות</div>' : insights.weaknesses.map(w => insightCard(w, false)).join('')}
+      </div>
+    </div>
+  </div>
+
+  <!-- חלק 3: המלצות -->
+  <div class="card">
+    <div class="card-h">
+      <h3>💎 המלצות למהלכים</h3>
+      <span class="sub">מהלכים שיכולים לשפר את הרווח, מסודרים לפי השפעה</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px;background:var(--bg-1);border-radius:8px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:10.5px;color:var(--txt-faint)">צפי קדימה</label>
+        <select onchange="changeInsightsParam('recoForwardMonths', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.recoForwardMonths, 12)}</select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:10.5px;color:var(--txt-faint)">ממוצע על סמך</label>
+        <select onchange="changeInsightsParam('recoAvgWindow', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.recoAvgWindow, totalHistory)}</select>
+      </div>
+    </div>
+    ${recoCards || '<div class="hint" style="padding:14px;text-align:center">אין המלצות חדשות כרגע — המצב שלך טוב.</div>'}
+  </div>`;
+}
+
+function changeInsightsParam(key, val){
+  ensureInsightsState();
+  state.insights[key] = parseFloat(val) || 1;
+  saveState();
+  renderInsights();
+}
+
+
 function renderScenarios(){
   if(!simState) simState=structuredClone(state);
   // אתחול תקציב השיווק לפי המצב הנוכחי (פעם ראשונה)
