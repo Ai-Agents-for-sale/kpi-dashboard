@@ -3613,23 +3613,23 @@ function renderTradeoffSimulator(){
       <div class="rep-pill ${ts.mode==='setup'?'active':''}" onclick="setTradeoffMode('setup')">שינוי מחיר הקמה</div>
     </div>`;
 
-  // סליידרים לפי מצב
+  // סליידרים לפי מצב (עם שדה הזנה ידני)
   let controls = '';
   if(ts.mode === 'retainer'){
     controls = `
       <div class="slider-row"><div class="sr-h"><label>מחיר ריטיינר חדש</label>
-        <b>${fmt(ts.newRetainer)} <span style="font-size:12px;color:var(--txt-dim)">₪</span></b></div>
-        <input type="range" min="${Math.max(50,Math.round(currentRetainer*0.5))}" max="${Math.round(currentRetainer*2.5)}" step="10" value="${ts.newRetainer}" oninput="onTradeoffSlider('newRetainer', this.value)"></div>
+        <input type="number" data-key="newRetainer" value="${ts.newRetainer}" onchange="onTradeoffInput('newRetainer', this.value)" style="width:90px;background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-family:'Rubik';font-weight:700;font-size:14px;direction:ltr;text-align:center"></div>
+        <input type="range" min="${Math.max(50,Math.round(currentRetainer*0.5))}" max="${Math.round(currentRetainer*2.5)}" step="10" value="${ts.newRetainer}" oninput="onTradeoffSliderLive('newRetainer', this.value)" onchange="onTradeoffInput('newRetainer', this.value)"></div>
       <div class="hint" style="margin-top:4px">מחיר נוכחי: ${money(currentRetainer)}₪ ${ts.newRetainer>currentRetainer?'· העלאה של '+fmt1((ts.newRetainer/currentRetainer-1)*100)+'%':ts.newRetainer<currentRetainer?'· הורדה של '+fmt1((1-ts.newRetainer/currentRetainer)*100)+'%':''}</div>`;
   } else {
     controls = `
       <div class="slider-row"><div class="sr-h"><label>מחיר הקמה חדש</label>
-        <b>${fmt(ts.newSetup)} <span style="font-size:12px;color:var(--txt-dim)">₪</span></b></div>
-        <input type="range" min="0" max="${Math.round(currentSetup*2.5)}" step="25" value="${ts.newSetup}" oninput="onTradeoffSlider('newSetup', this.value)"></div>
+        <input type="number" data-key="newSetup" value="${ts.newSetup}" onchange="onTradeoffInput('newSetup', this.value)" style="width:90px;background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-family:'Rubik';font-weight:700;font-size:14px;direction:ltr;text-align:center"></div>
+        <input type="range" min="0" max="${Math.round(currentSetup*2.5)}" step="25" value="${ts.newSetup}" oninput="onTradeoffSliderLive('newSetup', this.value)" onchange="onTradeoffInput('newSetup', this.value)"></div>
       <div class="hint" style="margin-top:4px;margin-bottom:14px">מחיר נוכחי: ${money(currentSetup)}₪ ${ts.newSetup>currentSetup?'· העלאה של '+fmt1((ts.newSetup/currentSetup-1)*100)+'%':ts.newSetup<currentSetup?'· הורדה של '+fmt1((1-ts.newSetup/currentSetup)*100)+'%':''}</div>
       <div class="slider-row"><div class="sr-h"><label>עמלת מכירה</label>
-        <b>${fmt1(ts.salesCommPct)} <span style="font-size:12px;color:var(--txt-dim)">%</span></b></div>
-        <input type="range" min="0" max="90" step="0.5" value="${ts.salesCommPct}" oninput="onTradeoffSlider('salesCommPct', this.value)"></div>
+        <input type="number" data-key="salesCommPct" value="${ts.salesCommPct}" step="0.5" onchange="onTradeoffInput('salesCommPct', this.value)" style="width:90px;background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-family:'Rubik';font-weight:700;font-size:14px;direction:ltr;text-align:center"></div>
+        <input type="range" min="0" max="90" step="0.5" value="${ts.salesCommPct}" oninput="onTradeoffSliderLive('salesCommPct', this.value)" onchange="onTradeoffInput('salesCommPct', this.value)"></div>
       <div class="hint" style="margin-top:4px">עמלת המכירה חלה על ההקמה. אפשר לשנות אותה יחד עם ההקמה או להשאיר קבועה.</div>`;
   }
 
@@ -3683,7 +3683,7 @@ function renderTradeoffSimulator(){
   <div class="card" style="margin-bottom:16px">
     <div class="card-h"><h3>מה לשנות?</h3></div>
     ${modeBtns}
-    ${controls}
+    <div id="tradeoffControls">${controls}</div>
     ${setupToggle}
   </div>
 
@@ -3699,7 +3699,7 @@ function renderTradeoffSimulator(){
         <th style="text-align:center;padding:10px 8px;font-size:11.5px;color:var(--accent);font-weight:600">תוספת רווח</th>
         <th style="text-align:center;padding:10px 8px;font-size:11.5px;color:var(--txt-faint);font-weight:600">למה</th>
       </tr></thead>
-      <tbody>${tableRows}</tbody>
+      <tbody id="tradeoffTableBody">${tableRows}</tbody>
     </table>
     </div>
     <div class="hint" style="margin-top:12px;line-height:1.6">
@@ -3710,7 +3710,37 @@ function renderTradeoffSimulator(){
 }
 
 function setTradeoffMode(mode){ ensureTradeoffState(); tradeoffState.mode = mode; renderScenarios(); }
-function onTradeoffSlider(key, val){ ensureTradeoffState(); tradeoffState[key] = parseFloat(val); renderScenarios(); }
+function onTradeoffInput(key, val){ ensureTradeoffState(); tradeoffState[key] = parseFloat(val)||0; renderScenarios(); }
+// עדכון חלק תוך כדי גרירה - מעדכן רק את הטבלה, בלי רינדור מלא (לא מאבד פוקוס)
+function onTradeoffSliderLive(key, val){
+  ensureTradeoffState();
+  tradeoffState[key] = parseFloat(val)||0;
+  updateTradeoffTable();
+}
+function updateTradeoffTable(){
+  const tbody = document.getElementById('tradeoffTableBody');
+  if(!tbody) return;
+  const result = computeTradeoff();
+  const horizonLabels = {1:'חודש 1', 2:'חודשיים', 3:'3 חודשים', 6:'6 חודשים', 12:'12 חודשים'};
+  window._tradeoffRows = {};
+  tbody.innerHTML = result.rows.map((r)=>{
+    window._tradeoffRows[`_to_${r.N}`] = r;
+    const cacColor = r.cacThreshold >= r.cac0 ? 'var(--accent)' : 'var(--red)';
+    const deltaColor = r.profitDelta >= 0 ? 'var(--accent)' : 'var(--red)';
+    return `<tr style="border-bottom:1px solid var(--line-soft)">
+      <td style="padding:13px 8px;font-size:13.5px;color:var(--txt)">${horizonLabels[r.N]}</td>
+      <td style="padding:13px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;color:${cacColor};direction:ltr">${money(r.cacThreshold)}₪</td>
+      <td style="padding:13px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:15px;color:${deltaColor};direction:ltr">${r.profitDelta>=0?'+':''}${money(r.profitDelta)}₪</td>
+      <td style="padding:13px 8px;text-align:center"><span onclick="showTradeoffWhy('_to_${r.N}')" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--bg-1);border:1px solid var(--line-soft);font-size:13px;color:var(--accent)">?</span></td>
+    </tr>`;
+  }).join('');
+  // עדכון המספר ליד הסליידר
+  const ts = tradeoffState;
+  document.querySelectorAll('#tradeoffControls input[type=number]').forEach(inp=>{
+    const k = inp.getAttribute('data-key');
+    if(k && ts[k]!=null) inp.value = ts[k];
+  });
+}
 function toggleTradeoffSetup(){ ensureTradeoffState(); tradeoffState.includeSetup = !tradeoffState.includeSetup; renderScenarios(); }
 
 /* חלון הסבר מפורט לכל שורה */
