@@ -3090,93 +3090,154 @@ function renderInsights(){
   if(moves.length === 0){
     movesHtml = `<div class="hint" style="padding:14px;text-align:center;font-size:13.5px">לא זוהו מהלכים משמעותיים (מעל ${isn.moveThreshold}% שינוי). הורד את הסף בדרופדאון למעלה כדי לראות מהלכים קטנים יותר.</div>`;
   } else {
-    // ממפה כל פרמטר לפועל בעברית
-    const verbForParam = (paramKey, pctChange) => {
-      const verbs = {
-        setupAvg: pctChange < 0 ? 'הורדת את מחיר ההקמה הממוצע' : 'העלית את מחיר ההקמה הממוצע',
-        salesCommPct: pctChange < 0 ? 'הורדת את אחוז עמלת המכירה' : 'העלית את אחוז עמלת המכירה',
-        retainerAvgActive: pctChange < 0 ? 'הורדת את הריטיינר הממוצע' : 'העלית את הריטיינר הממוצע',
-        closes: pctChange < 0 ? 'סגרת פחות לקוחות' : 'סגרת יותר לקוחות',
-        closeRate: pctChange < 0 ? 'אחוז הסגירה ירד' : 'אחוז הסגירה עלה',
-        budget: pctChange < 0 ? 'הורדת את תקציב השיווק' : 'העלית את תקציב השיווק',
-        churnRate: pctChange < 0 ? 'אחוז השחיקה ירד' : 'אחוז השחיקה עלה',
+    // === ניתוח לכל מהלך בנפרד ===
+    // לכל מהלך נחשב את ההשפעה שלו לבד - בלי לערבב עם מהלכים אחרים שאולי קרו באותו חודש
+    movesHtml = moves.map((mv, idx) => {
+      const c = compute(state);
+      const avgMonths = state.avgMonths || (state.churnRate > 0 ? 100/state.churnRate : 30);
+      const window = state.insights.moveBeforeAfterWindow;
+
+      // נסחי פעולה לפי הפרמטר
+      const verbForParam = {
+        setupAvg: mv.pctChange < 0 ? 'הורדת את מחיר ההקמה הממוצע' : 'העלית את מחיר ההקמה הממוצע',
+        salesCommPct: mv.pctChange < 0 ? 'הורדת את אחוז עמלת המכירה' : 'העלית את אחוז עמלת המכירה',
+        retainerAvgActive: mv.pctChange < 0 ? 'הורדת את הריטיינר הממוצע' : 'העלית את הריטיינר הממוצע',
+        closes: mv.pctChange < 0 ? 'סגרת פחות לקוחות' : 'סגרת יותר לקוחות',
+        closeRate: mv.pctChange < 0 ? 'אחוז הסגירה ירד' : 'אחוז הסגירה עלה',
+        budget: mv.pctChange < 0 ? 'הורדת את תקציב השיווק' : 'העלית את תקציב השיווק',
+        churnRate: mv.pctChange < 0 ? 'אחוז השחיקה ירד' : 'אחוז השחיקה עלה',
       };
-      return verbs[paramKey] || `${paramKey} השתנה`;
-    };
+      const verb = verbForParam[mv.param.key] || `${mv.param.label} השתנה`;
 
-    movesHtml = Object.keys(movesByMonth).map((monthName, idx) => {
-      const monthMoves = movesByMonth[monthName];
-      const impact = analyzeMoveImpact(monthMoves[0]);
-      const helpKey = `_moveAnalysis_${idx}`;
-      window._insightAnalyses[helpKey] = {monthMoves, impact, monthName};
+      // === הסבר ההשפעה לכל מהלך בנפרד ===
+      // כלומר: מה היה קורה אם רק המהלך הזה היה משתנה, וכל השאר היו נשארים זהים
+      // נשתמש בממוצע הסגירות בכלל (לא מנותח רק לפי החודש הזה)
+      // משתמשים בשיטה: רווח לקוח בודד = (הקמה - עמלה) + (ריטיינר נטו × ממוצע חודשי חיים)
+      const setupNow = state.setupFee;
+      const commPctNow = c.commPct;
+      const retainerNet = c.retainerForNew * (1 - c.onbCommPct - c.procPct);
+      // ממוצע סגירות בחודש (לפי החודשים אחורה שנבחרו)
+      const closesPerMonth = profitNextMonth(state, window, 1).avgClosesPerMonth;
 
-      // השורה התחתונה: האם המהלך השתלם?
-      let verdictColor = 'var(--txt-faint)';
-      let verdictText = '';
-      if(impact){
-        if(impact.breakEvenMonths === 0){
-          verdictColor = 'var(--accent)';
-          verdictText = 'המהלך השתלם מיד';
-        } else if(impact.breakEvenMonths === -1){
-          verdictColor = 'var(--red)';
-          verdictText = 'המהלך לא משתלם';
-        } else if(impact.breakEvenMonths != null){
+      // אם המהלך הוא הקמה - נשווה מצב ישן (הקמה ישנה) למצב חדש (הקמה חדשה)
+      // **המהלך לבד** - לא משלבים שינויים אחרים
+      let oldSetup = setupNow, newSetup = setupNow;
+      let oldCommPct = commPctNow, newCommPct = commPctNow;
+      let oldClosesPerMonth = closesPerMonth, newClosesPerMonth = closesPerMonth;
+      let oldRetainer = c.retainerForNew, newRetainer = c.retainerForNew;
+
+      // הניתוח מתבסס על הערכים מהמהלך בלבד
+      if(mv.param.key === 'setupAvg'){
+        oldSetup = mv.fromValue;
+        newSetup = mv.toValue;
+        // הנחה: אין שינוי באחוז סגירה, רק במחיר. אם המחיר ירד - יש סיכוי שיותר אנשים יסגרו
+        // אבל פה אנחנו בודקים *לבד* את המהלך - לא משלבים השפעה משוערת
+      } else if(mv.param.key === 'salesCommPct'){
+        oldCommPct = mv.fromValue/100;
+        newCommPct = mv.toValue/100;
+      } else if(mv.param.key === 'closes'){
+        oldClosesPerMonth = mv.fromValue;
+        newClosesPerMonth = mv.toValue;
+      } else if(mv.param.key === 'retainerAvgActive'){
+        oldRetainer = mv.fromValue;
+        newRetainer = mv.toValue;
+      }
+
+      // נחשב את רווח הלקוח לפני ואחרי (נטו)
+      const setupNetOld = oldSetup * (1 - oldCommPct);
+      const setupNetNew = newSetup * (1 - newCommPct);
+      const retainerNetOld = oldRetainer * (1 - c.onbCommPct - c.procPct);
+      const retainerNetNew = newRetainer * (1 - c.onbCommPct - c.procPct);
+      const ltvOld = setupNetOld + (retainerNetOld * avgMonths);
+      const ltvNew = setupNetNew + (retainerNetNew * avgMonths);
+      const monthlyOld = ltvOld * oldClosesPerMonth;
+      const monthlyNew = ltvNew * newClosesPerMonth;
+      const monthlyDelta = monthlyNew - monthlyOld;
+
+      // נקודת איזון: אם יש פחות רווח מהקמה אבל יותר לקוחות, חישוב מתי נמוך → גבוה
+      const initialLossPerMonth = (setupNetOld - setupNetNew) * Math.min(oldClosesPerMonth, newClosesPerMonth);
+      const extraClients = newClosesPerMonth - oldClosesPerMonth;
+      const monthlyGainFromExtra = extraClients * retainerNetNew;
+      let breakEvenText = '';
+      let verdict = '', verdictColor = 'var(--txt-faint)';
+
+      if(monthlyDelta >= 0){
+        verdict = 'המהלך משתלם';
+        verdictColor = 'var(--accent)';
+        if(initialLossPerMonth > 0 && monthlyGainFromExtra > 0){
+          const breakEvenMonths = initialLossPerMonth / monthlyGainFromExtra;
+          breakEvenText = `נקודת איזון: הפסד מההקמה ÷ רווח חודשי מלקוחות נוספים = ${money(initialLossPerMonth)} ÷ ${money(monthlyGainFromExtra)} = <b>חודש ${fmt1(breakEvenMonths)}</b>.`;
+          verdict = `המהלך משתלם תוך ${fmt1(breakEvenMonths)} חודשים`;
           verdictColor = 'var(--amber)';
-          verdictText = `המהלך משתלם תוך ${fmt1(impact.breakEvenMonths)} חודשים`;
+        } else {
+          breakEvenText = 'המהלך משתלם מיד - גם בטווח הקצר.';
         }
+      } else {
+        verdict = 'המהלך לא משתלם';
+        verdictColor = 'var(--red)';
+        breakEvenText = `הרווח החודשי <b>ירד</b> ב-${money(Math.abs(monthlyDelta))}₪ פר חודש גיוס.`;
       }
 
-      // כותרת בעברית פשוטה
-      const monthLabel = monthName === 'החודש' ? 'החודש' : monthName;
-      const sentences = monthMoves.map(mv => {
-        const verb = verbForParam(mv.param.key, mv.pctChange);
-        return `${verb} מ-${fmt1(mv.fromValue)}${mv.param.unit} ל-${fmt1(mv.toValue)}${mv.param.unit}`;
-      });
-      const headlineText = sentences.length === 1
-        ? `${monthLabel} ${sentences[0]}`
-        : `${monthLabel} ביצעת ${sentences.length} שינויים: ${sentences.join(', וגם ')}`;
+      // טקסט גדול וברור
+      const headline = `${mv.monthName} ${verb} מ-${fmt1(mv.fromValue)}${mv.param.unit} ל-${fmt1(mv.toValue)}${mv.param.unit}`;
 
-      // הסבר ההשפעה בעברית
-      let impactText = '';
-      let monthlyAfter = '';
-      let cumulative12Text = '';
-      if(impact){
-        const closeBefore = impact.metrics.closes.before;
-        const closeAfter = impact.metrics.closes.after;
-        const closeDelta = closeAfter - closeBefore;
-        const churnBefore = impact.metrics.churnRate.before;
-        const churnAfter = impact.metrics.churnRate.after;
+      return `<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:14px;padding:22px;margin-bottom:16px">
 
-        const closeTxt = Math.abs(closeDelta) >= 0.5
-          ? `כמות הסגירות ${closeDelta>0?'עלתה':'ירדה'} מ-${fmt1(closeBefore)} ל-${fmt1(closeAfter)} בחודש`
-          : `כמות הסגירות נשארה כמעט זהה (${fmt1(closeBefore)} → ${fmt1(closeAfter)})`;
-        const churnTxt = Math.abs(churnAfter - churnBefore) >= 0.3
-          ? `אחוז השחיקה ${churnAfter>churnBefore?'עלה':'ירד'} מ-${fmt1(churnBefore)}% ל-${fmt1(churnAfter)}%`
-          : `אחוז השחיקה נשאר יציב (${fmt1(churnBefore)}% → ${fmt1(churnAfter)}%)`;
-        impactText = `${closeTxt}. ${churnTxt}.`;
-
-        if(impact.monthlyDiff !== 0){
-          monthlyAfter = `<b style="color:${impact.monthlyDiff>=0?'var(--accent)':'var(--red)'}">${impact.monthlyDiff>=0?'+':''}${money(impact.monthlyDiff)}₪ לחודש</b>`;
-        }
-        const cumulative12 = impact.monthlyDiff * 12 + impact.initialDiff;
-        cumulative12Text = `<b style="color:${cumulative12>=0?'var(--accent)':'var(--red)'}">${cumulative12>=0?'+':''}${money(cumulative12)}₪</b>`;
-      }
-
-      return `<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:18px;margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px">
-          <div style="flex:1;min-width:240px">
-            <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">${monthLabel === 'החודש' ? 'החודש' : monthLabel}</div>
-            <div style="font-size:15px;line-height:1.7;color:var(--txt);font-weight:500">${headlineText}.</div>
+        <!-- כותרת המהלך -->
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:18px">
+          <div style="flex:1;min-width:260px">
+            <div style="font-size:12.5px;color:var(--txt-faint);margin-bottom:6px">${mv.monthName}</div>
+            <div style="font-size:17px;line-height:1.5;color:var(--txt);font-weight:600">${headline}.</div>
+            <div style="font-size:13px;color:var(--txt-faint);margin-top:6px">שינוי של ${mv.pctChange>=0?'+':''}${fmt1(mv.pctChange)}%</div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;background:rgba(${verdictColor==='var(--accent)'?'61,220,151':verdictColor==='var(--red)'?'255,107,107':'247,184,1'},.12);padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;color:${verdictColor}">
-            <span>${verdictText}</span>
-            <span style="cursor:pointer" onclick="showMoveAnalysis('${helpKey}')" title="איך חישבנו">${help('').replace('?','?')}</span>
+          <div style="background:rgba(${verdictColor==='var(--accent)'?'61,220,151':verdictColor==='var(--red)'?'255,107,107':'247,184,1'},.15);padding:10px 16px;border-radius:10px;font-size:14px;font-weight:600;color:${verdictColor}">
+            ${verdict}
           </div>
         </div>
-        ${impact ? `<div style="border-top:1px solid var(--line-soft);padding-top:14px;font-size:13.5px;line-height:1.8;color:var(--txt-dim)">
-          <div style="margin-bottom:10px"><b style="color:var(--txt)">השפעה בפועל:</b> ${impactText}</div>
-          ${monthlyAfter ? `<div>אחרי שהמהלך משתלם, הרווח החודשי גדל ב-${monthlyAfter}. ב-12 חודשים זה מצטבר ל-${cumulative12Text}.</div>` : ''}
-        </div>` : ''}
+
+        <!-- ההסבר המלא, גלוי, כמו בצ'אט -->
+        <div style="background:var(--bg-1);border-radius:12px;padding:18px;font-size:14px;line-height:1.9;color:var(--txt-dim)">
+
+          <div style="color:var(--txt);font-weight:600;margin-bottom:10px;font-size:14.5px">3 צעדים לבדיקה אם המהלך השתלם:</div>
+          <div style="margin-bottom:6px"><b>1.</b> רווח לקוח בודד = (הקמה − עמלת מכירה) + (ריטיינר נטו × ממוצע חודשי חיים)</div>
+          <div style="margin-bottom:6px"><b>2.</b> רווח חודשי = רווח לקוח × ממוצע לקוחות שגויסו בחודש</div>
+          <div style="margin-bottom:16px"><b>3.</b> השוואה בין ישן לחדש = מי שגבוה יותר מנצח</div>
+
+          <hr style="border:none;border-top:1px solid var(--line-soft);margin:16px 0">
+
+          <div style="color:var(--txt);font-weight:600;margin-bottom:12px;font-size:14.5px">הנתונים שלך:</div>
+
+          <div style="margin-bottom:18px">
+            <div style="color:var(--txt);font-weight:600;margin-bottom:6px">לפני המהלך:</div>
+            <div>${money(oldSetup)}₪ הקמה × (1 − ${fmt1(oldCommPct*100)}% עמלה) = <b style="color:var(--txt)">${money(setupNetOld)}₪</b> נקי מהקמה</div>
+            <div>+ (${money(retainerNetOld)}₪ ריטיינר נטו × ${fmt1(avgMonths)} חודשים) = <b style="color:var(--txt)">${money(retainerNetOld*avgMonths)}₪</b> מריטיינר</div>
+            <div>= <b style="color:var(--txt)">${money(ltvOld)}₪ רווח כולל מלקוח</b></div>
+            <div>× ${fmt1(oldClosesPerMonth)} לקוחות בחודש = <b style="color:var(--accent);font-size:15px">${money(monthlyOld)}₪</b> רווח חודשי</div>
+          </div>
+
+          <div style="margin-bottom:18px">
+            <div style="color:var(--txt);font-weight:600;margin-bottom:6px">אחרי המהלך:</div>
+            <div>${money(newSetup)}₪ הקמה × (1 − ${fmt1(newCommPct*100)}% עמלה) = <b style="color:var(--txt)">${money(setupNetNew)}₪</b> נקי מהקמה</div>
+            <div>+ (${money(retainerNetNew)}₪ ריטיינר נטו × ${fmt1(avgMonths)} חודשים) = <b style="color:var(--txt)">${money(retainerNetNew*avgMonths)}₪</b> מריטיינר</div>
+            <div>= <b style="color:var(--txt)">${money(ltvNew)}₪ רווח כולל מלקוח</b></div>
+            <div>× ${fmt1(newClosesPerMonth)} לקוחות בחודש = <b style="color:var(--accent);font-size:15px">${money(monthlyNew)}₪</b> רווח חודשי</div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--line-soft);margin:16px 0">
+
+          <div style="color:var(--txt);font-weight:600;margin-bottom:8px;font-size:14.5px">השוואה:</div>
+          <div style="margin-bottom:16px;font-size:14.5px">
+            ${monthlyDelta >= 0
+              ? `החדש מנצח ב-<b style="color:var(--accent)">${money(monthlyDelta)}₪</b> פר חודש גיוס.`
+              : `הישן מנצח ב-<b style="color:var(--red)">${money(Math.abs(monthlyDelta))}₪</b> פר חודש גיוס.`}
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--line-soft);margin:16px 0">
+
+          <div style="color:var(--txt);font-weight:600;margin-bottom:8px;font-size:14.5px">השורה התחתונה:</div>
+          <div style="font-size:14px">${breakEvenText}</div>
+
+        </div>
       </div>`;
     }).join('');
   }
