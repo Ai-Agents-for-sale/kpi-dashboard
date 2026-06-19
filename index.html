@@ -560,23 +560,18 @@ function profitSoFar(s = state){
    - שיווק: רק מה שיצא עד היום (לפי הוראת המשתמש - לא חוזים יותר) */
 function profitExpectedEndOfMonth(s = state){
   const c = compute(s);
-  const activeEnd = s.activeClients || 0;  // numeric_mm4dmewn
+  const activeEnd = s.activeClients || 0;
   const retainerAvg = s.retainer || 0;
-  // הכנסות
   const churnFactor = 1 - (s.churnRate/100)/2;
   const expectedRetainers = activeEnd * retainerAvg * churnFactor;
   const setupIncome = s.setupIncomeSoFar || 0;
   const totalIncome = expectedRetainers + setupIncome;
-  // הוצאות
   const procFee = totalIncome * c.procPct;
   const salesComm = setupIncome * c.commPct;
   const joinedRetainer = s.joinedRetainer || 0;
   const onbComm = joinedRetainer * c.onbCommPct * retainerAvg;
-  // תקציב שיווק הכולל לחודש = (תקציב יומי בפועל) × (ימים בחודש)
-  const actBudget = parseFloat(s.actBudget) || 0;
-  const actDays = parseFloat(s.actDays) || 0;
-  const dailyBudget = actDays>0 ? actBudget/actDays : 0;
-  const totalMonthlyMarketing = dailyBudget * s.daysMonth;
+  // שיווק = רק מה שיצא עד היום (לא צופים יותר - לקוחות נוספים יביאו עלות שיווק נוספת בנפרד)
+  const marketingSoFar = parseFloat(s.actBudget) || 0;
   const fixedCosts = s.fixedCosts || 0;
   return {
     income: totalIncome,
@@ -585,9 +580,9 @@ function profitExpectedEndOfMonth(s = state){
     procFee,
     salesComm,
     onbComm,
-    marketing: totalMonthlyMarketing,
+    marketing: marketingSoFar,
     fixedCosts,
-    operating: totalIncome - procFee - salesComm - onbComm - totalMonthlyMarketing - fixedCosts,
+    operating: totalIncome - procFee - salesComm - onbComm - marketingSoFar - fixedCosts,
   };
 }
 
@@ -1653,6 +1648,8 @@ function refreshActual(){
   }
 
   // === אינדיקטורים חדשים: כמה לקוחות עוד צריך ===
+  // הרווח שכבר נכנס/הצפוי כולל שיווק שיצא **עד היום בלבד**.
+  // כל לקוח נוסף שנגייס יוסיף עלות שיווק משלו, לכן הרווח לקוח חייב לכלול שיווק (280₪).
   const profitPerNew = profitFromOneNewClient();
   // א. מהרווח עד היום: כמה צריך כדי להשלים ליעד
   const gapFromSoFar = state.goalProfit - profitSoFarVal;
