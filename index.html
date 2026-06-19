@@ -1986,35 +1986,61 @@ function refreshActual(){
         ${cacImpact!=null&&Math.abs(cacFull-cacTarget)>=0.5?`<div class="hint" style="margin-top:4px;color:${cacImpact>=0?'var(--accent)':'var(--red)'}">השפעה על הרווח: ${cacImpact>=0?'+':''}${money(cacImpact)}₪ בחודש</div>`:''}
       </div>
     </div>
-    <table class="kpi-table">
-      <thead><tr><th>מדד</th><th style="text-align:center">בפועל / צפי</th><th style="text-align:center;color:var(--txt-faint)">יעד</th><th style="text-align:center">פער</th></tr></thead>
-      <tbody>
-        ${(()=>{
-          // יעדי הטבלה מבוססים על פער הרווח (לא על מספר לקוחות תיאורטי)
-          // יעד לקוחות = מה שכבר נסגר + מה שעוד צריך לסגור כדי לסגור את הפער ברווח הצפוי
-          const goalClientsForGap = (closes||0) + clientsNeededFromExpected;
-          const goalLeadsForGap = (leads||0) + leadsFromExpected;
-          const goalCallsForGap = c.answer>0 ? goalLeadsForGap * c.answer : 0;
-          const goalBudgetForGap = getMarketingSpentSoFar() + budgetFromExpected;
-          // קצבים יומיים נדרשים (מהיום עד סוף חודש)
-          const closesDailyNeeded = daysLeft>0 ? clientsNeededFromExpected/daysLeft : 0;
-          const leadsDailyNeeded = daysLeft>0 ? leadsFromExpected/daysLeft : 0;
-          // פרויקציה
-          const projLeadsEOM = leads!=null && days>0 ? leads/days*state.daysMonth : null;
-          const projBudgetEOM = days>0 ? getMarketingSpentSoFar()/days*state.daysMonth : null;
-          return `
-        ${actRow4('לקוחות שנסגרו עד כה', closes!=null?fmt1(closes):dash, fmt1(goalClientsForGap), closes!=null?actGap(closes-goalClientsForGap,false,'',fmt1):'')}
-        ${actRow4('תחזית סגירות לסוף החודש', projCloses!=null?fmt1(projCloses):dash, fmt1(goalClientsForGap), projCloses!=null?actGap(projCloses-goalClientsForGap,false,'',fmt1):'')}
-        ${actRow4('הקצב הנוכחי (סגירות ביום)', pace!=null?fmt1(pace):dash, fmt1(goalClientsForGap/state.daysMonth), pace!=null?actGap(pace-goalClientsForGap/state.daysMonth,false,'/יום',fmt1):'')}
-        ${actRow4('כמה עוד צריך לסגור עד היעד', fmt1(clientsNeededFromExpected), '—', '')}
-        ${actRow4('<b>סגירות ביום מהיום ועד סוף החודש</b>'+(daysLeft!=null?' <small style="color:var(--txt-faint)">('+daysLeft+' ימי עבודה נותרו)</small>':''), perDay!=null?fmt1(perDay)+' /יום':dash, fmt1(closesDailyNeeded)+' /יום', (perDay!=null)?actGap(perDay-closesDailyNeeded,false,'/יום',fmt1):'')}
-        ${actRow4('לידים שנכנסו עד כה', leads!=null?fmt(leads):dash, fmt(goalLeadsForGap), leads!=null?actGap(leads-goalLeadsForGap,false,'',fmt):'')}
-        ${actRow4('שיחות מכירה צפויות עד סוף חודש', leads!=null&&days>0?fmt(projLeadsEOM*c.answer):dash, fmt(goalCallsForGap), '')}
-        ${actRow4('תקציב שיווק שיצא עד כה', money(getMarketingSpentSoFar())+'₪', money(goalBudgetForGap)+'₪', actGap(getMarketingSpentSoFar()-goalBudgetForGap,false,'₪',money))}
-        ${actRow4('<b>תקציב שיווק נדרש מהיום עד סוף החודש</b>', '—', money(budgetFromExpected)+'₪ ('+money(daysLeft>0?budgetFromExpected/daysLeft:0)+'₪/יום)', '')}
-          `;
-        })()}
-      </tbody>
+    ${gapFromExpected>0 ? (()=>{
+      // מספרי המפתח
+      const clientsNeeded = clientsNeededFromExpected;
+      const clientsDaily = daysLeft>0 ? clientsNeeded/daysLeft : 0;
+      const callsNeeded = c.close>0 ? clientsNeeded/c.close : 0;        // שיחות = לקוחות / אחוז סגירה
+      const callsDaily = daysLeft>0 ? callsNeeded/daysLeft : 0;
+      const leadsNeeded = c.effConv>0 ? clientsNeeded/c.effConv : 0;
+      const leadsDaily = daysLeft>0 ? leadsNeeded/daysLeft : 0;
+      const budgetNeeded = leadsNeeded * state.costPerLead;
+      const budgetDaily = daysLeft>0 ? budgetNeeded/daysLeft : 0;
+
+      return `<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:18px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px">
+          <h4 style="font-size:15px;margin:0;color:var(--txt)">מה צריך לעשות כדי להשלים את הפער</h4>
+          <span class="tag amber">פער ${money(gapFromExpected)}₪ ב-${daysLeft} ימים</span>
+        </div>
+        <div style="font-size:12.5px;color:var(--txt-faint);margin-bottom:16px;line-height:1.5">
+          הרווח הצפוי הוא ${money(projOperating)}₪. כדי להגיע ליעד של ${money(state.goalProfit)}₪, צריך לסגור עוד <b style="color:var(--txt)">${fmt1(clientsNeeded)} לקוחות</b> מהיום (כל לקוח חדש = ${money(profitPerNew)}₪ רווח בחודש הראשון).
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--line-soft)">
+              <th style="text-align:right;padding:10px 8px;font-weight:600;color:var(--txt-faint);font-size:12px">פעולה</th>
+              <th style="text-align:center;padding:10px 8px;font-weight:600;color:var(--accent);font-size:12px">סה"כ עד סוף החודש</th>
+              <th style="text-align:center;padding:10px 8px;font-weight:600;color:var(--accent);font-size:12px">ביום (${daysLeft} ימים)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid var(--line-soft)">
+              <td style="padding:12px 8px;color:var(--txt)">לקוחות לסגור</td>
+              <td style="padding:12px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;color:var(--accent);direction:ltr">${fmt1(clientsNeeded)}</td>
+              <td style="padding:12px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;color:var(--accent);direction:ltr">${fmt1(clientsDaily)}</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--line-soft)">
+              <td style="padding:12px 8px;color:var(--txt)">שיחות מכירה לבצע <span style="color:var(--txt-faint);font-size:11px">(לפי ${fmt1(c.close*100)}% סגירה)</span></td>
+              <td style="padding:12px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr">${fmt1(callsNeeded)}</td>
+              <td style="padding:12px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr">${fmt1(callsDaily)}</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--line-soft)">
+              <td style="padding:12px 8px;color:var(--txt)">לידים להביא <span style="color:var(--txt-faint);font-size:11px">(לפי ${fmt1(c.effConv*100)}% המרה)</span></td>
+              <td style="padding:12px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr">${fmt(leadsNeeded)}</td>
+              <td style="padding:12px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr">${fmt1(leadsDaily)}</td>
+            </tr>
+            <tr>
+              <td style="padding:12px 8px;color:var(--txt)">תקציב שיווק <span style="color:var(--txt-faint);font-size:11px">(לפי ${money(state.costPerLead)}₪ לליד)</span></td>
+              <td style="padding:12px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr">${money(budgetNeeded)}₪</td>
+              <td style="padding:12px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr">${money(budgetDaily)}₪</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`;
+    })() : `<div class="notice ok" style="margin-bottom:14px">${svg('info')}<div>הרווח הצפוי (${money(projOperating)}₪) כבר עובר את יעד הרווח (${money(state.goalProfit)}₪). אין פער לסגור.</div></div>`}
+
+    <table class="kpi-table" style="display:none">
+      <thead><tr><th>מדד</th><th>בפועל</th><th>יעד</th><th>פער</th></tr></thead><tbody></tbody>
     </table>
     <div class="split" style="margin-top:14px">
       <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:15px">
