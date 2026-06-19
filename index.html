@@ -333,6 +333,7 @@ const DEFAULTS = {
   setupRemaining: 0,              // סכום שנותר להשלים מעלויות הקמה
   retainersIncomeSoFar: 0,        // סכום ריטיינרים שנכנסו עד היום
   setupIncomeSoFar: 0,            // סכום הקמות שנכנסו עד היום
+  joinedRetainer: 0,              // לקוחות שהצטרפו לריטיינר החודש
   history:[
     {label:'חודש −1', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
     {label:'חודש −2', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
@@ -3650,6 +3651,7 @@ function recomputeCoreFromMonday(){
   state.setupRemaining = (data.current.setupRemaining!=null && !isNaN(data.current.setupRemaining)) ? data.current.setupRemaining : 0;
   state.retainersIncomeSoFar = (data.current.retainersIncomeSoFar!=null && !isNaN(data.current.retainersIncomeSoFar)) ? data.current.retainersIncomeSoFar : 0;
   state.setupIncomeSoFar = (data.current.setupIncomeSoFar!=null && !isNaN(data.current.setupIncomeSoFar)) ? data.current.setupIncomeSoFar : 0;
+  state.joinedRetainer = (data.current.joinedRetainer!=null && !isNaN(data.current.joinedRetainer)) ? data.current.joinedRetainer : 0;
 }
 
 function changeChurnMonthsBack(val){
