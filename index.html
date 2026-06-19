@@ -326,6 +326,7 @@ const DEFAULTS = {
   mondayLastFetch:null,           // תאריך הסנכרון האחרון
   mondayMonthsBack:1,             // כמה חודשים לכלול בחישוב נתוני הבסיס (1=נוכחי בלבד)
   churnMonthsBack:1,              // כמה חודשים לכלול בחישוב אחוז השחיקה (נפרד מהשאר)
+  nextMonthMonthsBack:3,          // כמה חודשים לכלול בחישוב רווח חודש הבא (ממוצע)
   mondayRaw:null,                 // הנתונים הגולמיים האחרונים שנמשכו (לחישוב מחדש בלי משיכה)
   // === שדות הקמה (לחודש הנוכחי בלבד - לא בהיסטוריה) ===
   setupClients: 0,                // לקוחות בהקמה
@@ -528,6 +529,103 @@ function profitFromOneReturningClient(s = state){
    - ריטיינרים שנכנסו עד היום (מהמאנדיי ישירות)
    - הקמות שנכנסו עד היום (מהמאנדיי ישירות)
    - מנכים: סליקה, עמלת מכירה, עמלת אונבורדינג, שיווק, הוצאות קבועות (כל החודש - לפי הוראת המשתמש) */
+/* תקציב שיווק שיצא בפועל עד היום - מהמאנדיי ישירות (numeric_mm4aqc1a).
+   אם אין נתון מהמאנדיי, חוזרים ל-actBudget (קלט ידני). */
+function getMarketingSpentSoFar(s = state){
+  // עדיפות: מהמאנדיי ישיר
+  if(s.mondayRaw && s.mondayRaw.current && s.mondayRaw.current.budget>0){
+    return parseFloat(s.mondayRaw.current.budget);
+  }
+  // fallback - ידני
+  return parseFloat(s.actBudget) || 0;
+}
+
+/* גדילה אחוזית בין שני ערכים */
+function growthPct(now, prev){
+  if(!prev || prev===0) return null;
+  return ((now - prev)/prev)*100;
+}
+
+/* ממוצע גדילה חודשית של מטריקה לאורך n חודשים אחורה.
+   getter = פונקציה שלוקחת חודש ומחזירה את המספר.
+   history = state.mondayRaw.history (סדר: מהחדש לישן). */
+function avgGrowthOverMonths(getter, n, s = state){
+  if(!s.mondayRaw || !s.mondayRaw.history) return null;
+  const hist = s.mondayRaw.history.slice(0, n+1); // לוקח n+1 כי צריך n זוגות
+  if(hist.length<2) return null;
+  const pcts = [];
+  for(let i=0; i<hist.length-1; i++){
+    const nowVal = getter(hist[i]);
+    const prevVal = getter(hist[i+1]);
+    const p = growthPct(nowVal, prevVal);
+    if(p!=null && isFinite(p)) pcts.push(p);
+  }
+  if(!pcts.length) return null;
+  return pcts.reduce((a,b)=>a+b,0)/pcts.length;
+}
+
+/* רווח גולמי = כל מה שמופיע ברווח התפעולי, פחות הוצאות קבועות */
+function grossProfitSoFar(s = state){
+  const r = profitSoFar(s);
+  return r.operating + (s.fixedCosts||0);
+}
+function grossProfitExpected(s = state){
+  const r = profitExpectedEndOfMonth(s);
+  return r.operating + (s.fixedCosts||0);
+}
+
+/* רווח תפעולי צפוי לסוף החודש - בלי שחיקה */
+function profitExpectedNoChurn(s = state){
+  const c = compute(s);
+  const activeEnd = s.activeClients || 0;
+  const retainerAvg = s.retainer || 0;
+  const expectedRetainers = activeEnd * retainerAvg; // ללא churn factor
+  const setupIncome = s.setupIncomeSoFar || 0;
+  const totalIncome = expectedRetainers + setupIncome;
+  const procFee = totalIncome * c.procPct;
+  const salesComm = setupIncome * c.commPct;
+  const joinedRetainer = s.joinedRetainer || 0;
+  const onbComm = joinedRetainer * c.onbCommPct * retainerAvg;
+  const marketingSoFar = getMarketingSpentSoFar(s);
+  const fixedCosts = s.fixedCosts || 0;
+  return totalIncome - procFee - salesComm - onbComm - marketingSoFar - fixedCosts;
+}
+
+/* רווח צפוי לחודש הבא.
+   - בסיס: הריטיינר הצפוי מהפעילים הנוכחיים (עם שחיקה צפויה)
+   - מנכים סליקה על הריטיינר הזה
+   - מוסיפים: ממוצע הקמות שנכנסו ב-N חודשים אחורה
+   - מוסיפים: ממוצע לקוחות שהצטרפו לריטיינר ב-N חודשים × ריטיינר חדש (הכנסה מריטיינר של חדשים)
+   - מנכים: סליקה, עמלת מכירה, אונבורדינג על החדשים, שיווק (ממוצע N חודשים)
+   - מנכים: הוצאות קבועות (פעם אחת לחודש כולו) */
+function profitNextMonth(s = state, monthsBack){
+  if(monthsBack==null) monthsBack = s.nextMonthMonthsBack||3;
+  const c = compute(s);
+  const hist = (s.mondayRaw && s.mondayRaw.history) ? s.mondayRaw.history.slice(0, monthsBack) : [];
+  // ממוצעים היסטוריים
+  const avg = (getter) => {
+    if(!hist.length) return 0;
+    const vals = hist.map(getter).filter(v=>v!=null && !isNaN(v));
+    if(!vals.length) return 0;
+    return vals.reduce((a,b)=>a+b,0)/vals.length;
+  };
+  const avgSetupIncome = avg(m => m.setupIncomeSoFar);    // ממוצע הקמות נכנסו בחודש
+  const avgNewJoined = avg(m => m.joinedRetainer);          // ממוצע לקוחות שהצטרפו לריטיינר
+  const avgBudget = avg(m => m.budget);                     // ממוצע שיווק
+  // בסיס: ריטיינר מפעילים נוכחיים פחות שחיקה
+  const churnFactor = 1 - (s.churnRate/100);   // שחיקה מלאה (חודש שלם)
+  const expectedRetainers = (s.activeClients||0) * s.retainer * churnFactor;
+  // הכנסות מחדשים שיצטרפו (ריטיינר ראשון במחיר חדש)
+  const incomeFromNewRetainers = avgNewJoined * c.retainerForNew;
+  const totalIncome = expectedRetainers + incomeFromNewRetainers + avgSetupIncome;
+  // הוצאות
+  const procFee = totalIncome * c.procPct;
+  const salesComm = avgSetupIncome * c.commPct;
+  const onbComm = avgNewJoined * c.onbCommPct * c.retainerForNew;
+  const fixedCosts = s.fixedCosts || 0;
+  return totalIncome - procFee - salesComm - onbComm - avgBudget - fixedCosts;
+}
+
 function profitSoFar(s = state){
   const c = compute(s);
   const retainersIncome = s.retainersIncomeSoFar || 0;
@@ -539,8 +637,8 @@ function profitSoFar(s = state){
   const joinedRetainer = s.joinedRetainer || 0;
   const retainerAvgActive = s.retainer || 0;
   const onbComm = joinedRetainer * c.onbCommPct * retainerAvgActive;
-  const actBudget = parseFloat(s.actBudget) || 0;  // תקציב שיווק שיצא עד היום
-  const fixedCosts = s.fixedCosts || 0;  // כל החודש - לא מחלקים לימים
+  const actBudget = getMarketingSpentSoFar(s);  // מהמאנדיי ישירות
+  const fixedCosts = s.fixedCosts || 0;
   return {
     income: totalIncome,
     retainersIncome,
@@ -571,8 +669,8 @@ function profitExpectedEndOfMonth(s = state){
   const salesComm = setupIncome * c.commPct;
   const joinedRetainer = s.joinedRetainer || 0;
   const onbComm = joinedRetainer * c.onbCommPct * retainerAvg;
-  // שיווק = רק מה שיצא עד היום (לא צופים יותר - לקוחות נוספים יביאו עלות שיווק נוספת בנפרד)
-  const marketingSoFar = parseFloat(s.actBudget) || 0;
+  // שיווק = רק מה שיצא עד היום (מהמאנדיי ישירות)
+  const marketingSoFar = getMarketingSpentSoFar(s);
   const fixedCosts = s.fixedCosts || 0;
   return {
     income: totalIncome,
@@ -1199,6 +1297,145 @@ function renderLeadsCapacityCard(plan, contextLabel){
   </div>`;
 }
 
+/* כרטיס סיכומי החודש - שורה של מטריקות חיוניות במסך הסקירה */
+function renderMonthSummary(){
+  const s = state;
+  const hist = (s.mondayRaw && s.mondayRaw.history) ? s.mondayRaw.history : [];
+  const prev = hist[0]; // החודש הקודם
+  // === 1. מחזור מכירות החודש ===
+  const revenueNow = (s.retainersIncomeSoFar||0) + (s.setupIncomeSoFar||0);
+  const revenuePrev = prev ? ((prev.retainersIncomeSoFar||0) + (prev.setupIncomeSoFar||0)) : null;
+  const revGrowth = growthPct(revenueNow, revenuePrev);
+  // === 2. רווח גולמי ===
+  const grossExpected = grossProfitExpected(s);
+  const grossNow = grossProfitSoFar(s);
+  // === 3. רווח תפעולי צפוי ===
+  const opExpected = profitExpectedEndOfMonth(s).operating;
+  const opNoChurn = profitExpectedNoChurn(s);
+  // === 4. סכום ריטיינרים פעילים ===
+  const activeRetainerSum = (s.activeClients||0) * (s.retainer||0);
+  const prevActiveSum = prev ? (prev.activeEndMonth||0)*(prev.retainerAvgActive||s.retainer||0) : null;
+  const activeRetGrowth = growthPct(activeRetainerSum, prevActiveSum);
+  const activeRetAvgGrowth = avgGrowthOverMonths(m => (m.activeEndMonth||0)*(m.retainerAvgActive||0), 999);
+  // === 5. כמות לקוחות פעילים ===
+  const activeNow = s.activeClients||0;
+  const prevActive = prev ? prev.activeEndMonth : null;
+  const activeGrowth = growthPct(activeNow, prevActive);
+  const activeAvgGrowth = avgGrowthOverMonths(m => m.activeEndMonth||0, 999);
+  // === 6. רווח צפוי לחודש הבא ===
+  const nextMonth = profitNextMonth(s);
+  // === 7. אחוז רווח (תפעולי וגולמי) ===
+  const opPctNow = revenueNow>0 ? (profitSoFar(s).operating/revenueNow)*100 : null;
+  const grossPctNow = revenueNow>0 ? (grossNow/revenueNow)*100 : null;
+  const opPctPrev = (prev && revenuePrev>0) ? (((prev.retainersIncomeSoFar+prev.setupIncomeSoFar) - (prev.budget||0) - (prev.fixedCosts||0))/revenuePrev)*100 : null;
+
+  const tile = (title, mainVal, mainColor, subVal, subLabel, helpKey, extras) => `
+    <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:13px 14px">
+      <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:6px">
+        <span>${title}</span>
+        ${helpKey ? help(helpKey) : ''}
+      </div>
+      <div style="font-family:'Rubik';font-size:20px;font-weight:800;color:${mainColor};direction:ltr;text-align:right;margin-bottom:3px">${mainVal}</div>
+      ${subVal ? `<div style="font-size:11px;color:var(--txt-dim);line-height:1.4">${subLabel?`<span style="color:var(--txt-faint)">${subLabel}: </span>`:''}<b style="font-family:'Rubik';direction:ltr">${subVal}</b></div>` : ''}
+      ${extras || ''}
+    </div>`;
+
+  const growthBadge = (pct) => {
+    if(pct==null || !isFinite(pct)) return '';
+    const sign = pct>=0?'+':'';
+    const color = pct>=0?'var(--accent)':'var(--red)';
+    return `<span style="color:${color};font-family:'Rubik';direction:ltr">${sign}${fmt1(pct)}%</span>`;
+  };
+
+  const monthsBackOptions = (()=>{
+    const total = 1 + hist.length;
+    let opts = '';
+    for(let i=1; i<=Math.min(total, 12); i++){
+      const sel = (s.nextMonthMonthsBack||3)===i ? 'selected' : '';
+      opts += `<option value="${i}" ${sel}>${i===1?'חודש אחרון':i+' חודשים אחורה'}</option>`;
+    }
+    return opts;
+  })();
+
+  return `<div class="card" style="margin-bottom:16px;background:linear-gradient(135deg, rgba(73,170,255,.05), rgba(61,220,151,.05))">
+    <div class="card-h">
+      <h3>סיכום החודש</h3>
+      <span class="sub">מחזור, רווחים, גדילה — נכון להיום</span>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+      ${tile(
+        'מחזור מכירות החודש',
+        money(revenueNow)+'₪',
+        'var(--blue)',
+        revGrowth!=null ? growthBadge(revGrowth) : null,
+        'לעומת חודש קודם',
+        'monthRevenue'
+      )}
+      ${tile(
+        'רווח גולמי צפוי',
+        money(grossExpected)+'₪',
+        grossExpected>=0?'var(--accent)':'var(--red)',
+        money(grossNow)+'₪',
+        'גולמי היום',
+        'grossProfitSummary'
+      )}
+      ${tile(
+        'רווח תפעולי צפוי',
+        money(opExpected)+'₪',
+        opExpected>=0?'var(--accent)':'var(--red)',
+        money(opNoChurn)+'₪',
+        'בלי שחיקה',
+        'opExpectedSummary'
+      )}
+      ${tile(
+        'סכום ריטיינרים פעילים',
+        money(activeRetainerSum)+'₪',
+        'var(--accent)',
+        activeRetGrowth!=null ? `${growthBadge(activeRetGrowth)} מחודש קודם · ${growthBadge(activeRetAvgGrowth)} ממוצע` : null,
+        '',
+        'activeRetSumSummary'
+      )}
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px">
+      ${tile(
+        'כמות לקוחות פעילים',
+        fmt(activeNow),
+        'var(--purple)',
+        activeGrowth!=null ? `${growthBadge(activeGrowth)} מחודש קודם · ${growthBadge(activeAvgGrowth)} ממוצע` : null,
+        '',
+        'activeCountSummary'
+      )}
+      ${tile(
+        'רווח צפוי לחודש הבא',
+        money(nextMonth)+'₪',
+        nextMonth>=0?'var(--accent)':'var(--red)',
+        '',
+        '',
+        'nextMonthProfit',
+        `<div style="margin-top:6px;display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--txt-faint)">
+          <span>ממוצע:</span>
+          <select onchange="changeNextMonthMonthsBack(this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:2px 6px;font-size:10.5px;font-family:inherit">${monthsBackOptions}</select>
+        </div>`
+      )}
+      ${tile(
+        'אחוז רווח החודש',
+        opPctNow!=null ? fmt1(opPctNow)+'%' : '—',
+        'var(--amber)',
+        grossPctNow!=null ? fmt1(grossPctNow)+'% גולמי' : null,
+        '',
+        'profitPctSummary',
+        opPctPrev!=null ? `<div style="font-size:10.5px;color:var(--txt-faint);margin-top:4px">חודש קודם: ${fmt1(opPctPrev)}%</div>` : ''
+      )}
+    </div>
+  </div>`;
+}
+
+function changeNextMonthMonthsBack(val){
+  state.nextMonthMonthsBack = Math.max(1, parseInt(val)||3);
+  saveState();
+  navigate(currentPage);
+}
+
 function renderDashboard(){
   const c=compute();
   const plan=planFromClients(clientsForProfit(state.goalProfit));
@@ -1206,6 +1443,7 @@ function renderDashboard(){
   document.getElementById('content').innerHTML=`
   <div class="page-head"><h1>סקירה כללית</h1>
     <p>תמונת מצב חיה של הכלכלה ליחידת לקוח. כל שינוי בנתוני הבסיס מתעדכן כאן מיידית.</p></div>
+  ${renderMonthSummary()}
   <div class="grid cols-5" style="margin-bottom:16px">
     ${kpiTile('הכנסה ללקוח (LTV)','wallet','green',money(c.revPerClient),'₪','הקמה + '+state.avgMonths+' ריטיינרים','ltv')}
     ${kpiTile('עלות גיוס (CAC)','target','amber',money(c.cac),'₪','שיווק '+fmt(c.acqCost)+' + עמלה '+fmt(c.commCost)+' + אונבורדינג '+fmt(c.onbCommCost)+' + סליקה '+fmt(c.procCost),'cac')}
@@ -1213,7 +1451,6 @@ function renderDashboard(){
     ${kpiTile('רווח חודש הצטרפות','users','purple',money(profitFromOneNewClient(state))+' ₪','','חודש ראשון בו לקוח חדש מצטרף','firstMonthProfit')}
     ${kpiTile('יחס LTV / CAC','flag',c.ltvCacRatio>=3?'green':(c.ltvCacRatio>=1?'amber':'red'),fmt1(c.ltvCacRatio)+'x','',c.ltvCacRatio>=3?'בריא מאוד':(c.ltvCacRatio>=1?'רווחי':'הפסד'),'ltvcac')}
   </div>
-  ${renderLeadsCapacityCard(plan, 'מבוסס על היעד הנוכחי')}
   <div class="split" style="margin-bottom:16px">
     <div class="card">
       <div class="card-h"><h3>${T('client_econ','הכלכלה של לקוח בודד')}</h3><span class="sub">לכל לקוח חדש</span></div>
@@ -1238,9 +1475,10 @@ function renderDashboard(){
         ${slRow('red','הוצאות קבועות לכיסוי',money(state.fixedCosts)+' ₪')}
         ${(()=>{ const m1=monthlyProfitFromNewClients(be+1); const m0=monthlyProfitFromNewClients(be); const perExtra=m1.monthlyOperating-m0.monthlyOperating; return slRow('blue','כל לקוח נוסף מעבר לזה','+'+money(perExtra)+' ₪ רווח'); })()}
       </div>` : `
-      <div style="display:flex;align-items:baseline;gap:10px;margin:6px 0 14px">
+      <div style="display:flex;align-items:baseline;gap:10px;margin:6px 0 4px">
         <span style="font-family:'Rubik';font-size:38px;font-weight:800;color:var(--accent)">+${money(monthlyProfitFromNewClients(0).monthlyOperating)}₪</span>
         <span style="color:var(--txt-dim);font-size:14px">רווח מהבסיס לבד ${help('naturalProfit')}</span></div>
+      <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:14px;line-height:1.5">בהנחה שאף לקוח לא יעזוב (ללא שחיקה): <b style="color:var(--accent)">+${money(state.activeClients * state.retainer * (1 - state.processingFeePct/100) - state.fixedCosts)}₪</b></div>
       <div class="statlist">
         ${slRow('green','ריטיינר חודשי מבסיס קיים','+'+money(c.monthlyRetainerFromBase)+' ₪')}
         ${slRow('red','הוצאות קבועות',money(state.fixedCosts)+' ₪')}
@@ -1261,7 +1499,8 @@ function renderDashboard(){
       <span style="font-size:13.5px;color:var(--txt-dim)">רווח תפעולי שיתקבל</span>
       <span style="font-family:'Rubik';font-size:24px;font-weight:800;color:var(--accent)">${money(plan.operating)} ₪</span>
     </div>
-  </div>`;
+  </div>
+  ${renderLeadsCapacityCard(plan, 'מבוסס על היעד הנוכחי')}`;
 }
 
 /* ============================================================
@@ -1290,14 +1529,16 @@ function renderGoals(){
   <div id="goalPathsCard" style="margin-bottom:16px"></div>
 
   <div class="card">
-    <div class="card-h"><h3>${T('goal_breakdown','פירוק היעד — חודשי מול יומי')}</h3><span class="sub">הגעה ליעד על סמך לקוחות חדשים בלבד</span></div>
+    <div class="card-h"><h3>${T('goal_breakdown','פירוק היעד — חודשי מול יומי')} ${help('goalBreakdown')}</h3><span class="sub">הגעה ליעד על סמך לקוחות חדשים בלבד</span></div>
+    <div style="background:rgba(247,184,1,.08);border:1px solid rgba(247,184,1,.2);border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12.5px;color:var(--txt-dim);line-height:1.6">
+      <b style="color:var(--amber)">💡 שים לב:</b> הפירוק הזה חישוב תיאורטי כאילו מתחילים חודש חדש — מתחשב רק בלקוחות הפעילים שלך, ולא בהקמות/ריטיינרים שכבר נכנסו החודש. כדי לראות כמה צריך מהיום ועד סוף החודש (ביחס למה שכבר קרה) — תסתכל בטבלאות "השוואה למה שקרה בפועל" למטה.
+    </div>
     <div style="margin-bottom:8px"><span class="tag green">רווח חודש הצטרפות מלקוח חדש: <b style="font-family:'Rubik';direction:ltr">${money(profitFromOneNewClient())}₪</b></span>
       <span class="hint" style="display:inline;margin-right:8px">הקמה ${money(state.setupFee)}₪ + ריטיינר חדש ${money(state.retainerNew||state.retainer)}₪ פחות עמלות וסליקה ${help('firstMonthProfit')}</span></div>
     <div style="margin-bottom:14px"><span class="tag purple">אחוז המרה אפקטיבי: <span id="effShow"></span></span>
       <span class="hint" style="display:inline;margin-right:8px">${state.answerRate}% מענה × ${state.closeRate}% סגירה — שנה בנתוני בסיס</span></div>
     <div class="brk" id="brkBox"></div>
   </div>
-  <div style="margin-top:16px">${renderLeadsCapacityCard(planFromClients(clientsForProfit(state.goalProfit)), 'התאמת תקציב שיווק לקיבולת הצוות')}</div>
 
   <div class="card" style="margin-top:16px">
     <div class="card-h" style="cursor:pointer;user-select:none" onclick="toggleForecast()">
@@ -1738,12 +1979,12 @@ function refreshActual(){
     </table>
     <div class="split" style="margin-top:14px">
       <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:15px">
-        <div class="hint">רווח תפעולי שכבר נכנס בפועל (מנתוני המאנדיי) ${help('profitSoFar')}</div>
+        <div class="hint">רווח תפעולי שכבר נכנס בפועל ${help('profitSoFar')}</div>
         <div style="font-family:'Rubik';font-size:22px;font-weight:800;color:${profitSoFarVal>=0?'var(--accent)':'var(--red)'};direction:ltr;text-align:right;margin-top:4px">${money(profitSoFarVal)} ₪</div>
         <div class="hint" style="font-size:11px;margin-top:6px">ריטיינרים: ${money(realSoFar.retainersIncome)}₪ · הקמות: ${money(realSoFar.setupIncome)}₪</div>
       </div>
       <div style="background:var(--bg-2);border:1px solid ${onTrackGoal?'rgba(61,220,151,.3)':'rgba(255,107,107,.3)'};border-radius:12px;padding:16px">
-        <div class="hint" style="margin-bottom:10px">רווח תפעולי צפוי לסוף החודש (אם לא ייסגרו עוד) ${help('profitExpected')}</div>
+        <div class="hint" style="margin-bottom:10px">רווח תפעולי צפוי לסוף החודש ${help('profitExpected')}</div>
         <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
           <div>
             <div style="font-size:11.5px;color:var(--txt-faint)">צפוי</div>
@@ -1761,44 +2002,98 @@ function refreshActual(){
       </div>
     </div>
 
-    <!-- אינדיקטורים: כמה צריך כדי להשלים ליעד -->
-    ${gapFromSoFar>0 || gapFromExpected>0 ? `
-    <div style="margin-top:16px">
-      <h4 style="font-size:14px;margin:0 0 10px 0;color:var(--txt)">כמה צריך כדי להגיע ליעד</h4>
-      <div class="split">
-        ${gapFromSoFar>0 ? `
-        <div style="background:var(--bg-2);border:1px solid rgba(73,170,255,.25);border-radius:12px;padding:14px">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">
-            <div style="font-size:12px;color:var(--blue);font-weight:600">מהרווח שכבר נכנס בפועל</div>
-            <div style="font-family:'Rubik';font-size:14px;font-weight:700;color:${profitSoFarVal>=0?'var(--accent)':'var(--red)'};direction:ltr">${money(profitSoFarVal)}₪</div>
-          </div>
-          <div class="hint" style="font-size:11px;margin-bottom:10px">פער ${money(gapFromSoFar)}₪ עד היעד</div>
-          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
-            <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">לקוחות נדרשים</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${fmt1(clientsNeededFromSoFar)}</div></div>
-            <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">לידים נדרשים</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${fmt(leadsFromSoFar)}</div></div>
-            <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">תקציב יומי נדרש</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${money(dailyBudgetFromSoFar)}₪</div></div>
-            <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">סגירות ביום</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${fmt1(dailyClosesFromSoFar)}</div></div>
-          </div>
-        </div>` : ''}
-        ${gapFromExpected>0 ? `
-        <div style="background:var(--bg-2);border:1px solid rgba(247,184,1,.25);border-radius:12px;padding:14px">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">
-            <div style="font-size:12px;color:var(--amber);font-weight:600">מהרווח הצפוי לסוף החודש</div>
-            <div style="font-family:'Rubik';font-size:14px;font-weight:700;color:${projOperating>=0?'var(--accent)':'var(--red)'};direction:ltr">${money(projOperating)}₪</div>
-          </div>
-          <div class="hint" style="font-size:11px;margin-bottom:10px">פער ${money(gapFromExpected)}₪ עד היעד</div>
-          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
-            <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">לקוחות נדרשים</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${fmt1(clientsNeededFromExpected)}</div></div>
-            <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">לידים נדרשים</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${fmt(leadsFromExpected)}</div></div>
-            <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">תקציב יומי נדרש</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${money(dailyBudgetFromExpected)}₪</div></div>
-            <div style="background:var(--bg-1);border-radius:8px;padding:8px"><div style="font-size:10.5px;color:var(--txt-faint)">סגירות ביום</div><div style="font-family:'Rubik';font-weight:700;font-size:16px;direction:ltr;text-align:right">${fmt1(dailyClosesFromExpected)}</div></div>
-          </div>
-        </div>` : ''}
+    <!-- טבלה ראשית: השוואת ביצוע מול היעד על סמך פער הרווח הצפוי -->
+    ${gapFromExpected>0 ? (()=>{
+      // חישובים על סמך פער הרווח הצפוי
+      const closesNeeded = clientsNeededFromExpected;            // לקוחות נוספים שצריך
+      const closesPace = closes!=null && days>0 ? closes/days : 0;
+      const projClosesEOM = closes!=null && days>0 ? closes + closesPace*daysLeft : null;
+      const closesNeededDaily = daysLeft>0 ? closesNeeded/daysLeft : 0;
+      const remainingTotal = closes!=null ? closes + closesNeeded : closesNeeded; // סך לקוחות עד סוף חודש
+      // לידים, שיחות ותקציב נדרשים עד סוף החודש
+      const leadsNeeded = c.effConv>0 ? closesNeeded/c.effConv : 0;
+      const leadsNeededDaily = daysLeft>0 ? leadsNeeded/daysLeft : 0;
+      const callsNeeded = leadsNeeded * c.answer;
+      const callsNeededDaily = daysLeft>0 ? callsNeeded/daysLeft : 0;
+      const budgetNeeded = leadsNeeded * state.costPerLead;
+      const budgetNeededDaily = daysLeft>0 ? budgetNeeded/daysLeft : 0;
+
+      return `<div style="margin-top:16px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <h4 style="font-size:14.5px;margin:0;color:var(--txt)">השלמת הפער עד סוף החודש ${help('gapFromExpected')}</h4>
+          <span class="tag amber">פער ${money(gapFromExpected)}₪</span>
+        </div>
+        <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+          <thead>
+            <tr style="background:var(--bg-1);border-bottom:1px solid var(--line-soft)">
+              <th style="text-align:right;padding:10px 12px;font-weight:600;color:var(--txt-dim)">מטריקה</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--txt-dim)">עד עכשיו</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--txt-dim)">תחזית לסוף חודש</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--txt-dim)">קצב נוכחי</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--accent)">נדרש עד סוף החודש</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--accent)">קצב יומי נדרש</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid var(--line-soft)">
+              <td style="padding:10px 12px;color:var(--txt)">לקוחות חדשים (סגירות)</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';direction:ltr">${closes!=null?fmt(closes):dash}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';direction:ltr">${projClosesEOM!=null?fmt1(projClosesEOM):dash}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';direction:ltr">${closes!=null&&days>0?fmt1(closesPace)+' / יום':dash}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${fmt1(closesNeeded)}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${fmt1(closesNeededDaily)} / יום</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--line-soft)">
+              <td style="padding:10px 12px;color:var(--txt)">לידים</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';direction:ltr">${leads!=null?fmt(leads):dash}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';direction:ltr">${leads!=null&&days>0?fmt(leads/days*state.daysMonth):dash}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';direction:ltr">${leads!=null&&days>0?fmt1(leads/days)+' / יום':dash}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${fmt(leadsNeeded)}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${fmt1(leadsNeededDaily)} / יום</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--line-soft)">
+              <td style="padding:10px 12px;color:var(--txt)">שיחות מכירה</td>
+              <td style="padding:10px 12px;text-align:left;color:var(--txt-faint)">—</td>
+              <td style="padding:10px 12px;text-align:left;color:var(--txt-faint)">—</td>
+              <td style="padding:10px 12px;text-align:left;color:var(--txt-faint)">—</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${fmt1(callsNeeded)}</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${fmt1(callsNeededDaily)} / יום</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 12px;color:var(--txt)">תקציב שיווק נוסף</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';direction:ltr">${money(getMarketingSpentSoFar())}₪</td>
+              <td style="padding:10px 12px;text-align:left;color:var(--txt-faint)">—</td>
+              <td style="padding:10px 12px;text-align:left;color:var(--txt-faint)">—</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${money(budgetNeeded)}₪</td>
+              <td style="padding:10px 12px;text-align:left;font-family:'Rubik';font-weight:700;color:var(--accent);direction:ltr">${money(budgetNeededDaily)}₪ / יום</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+        <div style="margin-top:12px;font-size:11.5px;color:var(--txt-faint);line-height:1.5">
+          💡 ככל שנותרו פחות ימים בחודש, הקצב היומי הנדרש גדל כדי להשלים את הפער בזמן.
+        </div>
+      </div>` ;
+    })() : ''}
+
+    <!-- קוביה משנית: על סמך הרווח שכבר נכנס בפועל -->
+    ${gapFromSoFar>0 ? `
+    <div style="margin-top:14px;background:var(--bg-2);border:1px solid rgba(73,170,255,.2);border-radius:12px;padding:13px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <div style="font-size:12.5px;color:var(--blue);font-weight:600">השלמת הפער מהרווח שכבר נכנס בפועל ${help('gapFromSoFar')}</div>
+        <div style="font-size:12px;color:var(--txt-dim)">פער: <b style="font-family:'Rubik';direction:ltr">${money(gapFromSoFar)}₪</b></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:12px">
+        <div><span style="color:var(--txt-faint)">לקוחות:</span> <b style="font-family:'Rubik';direction:ltr">${fmt1(clientsNeededFromSoFar)}</b></div>
+        <div><span style="color:var(--txt-faint)">לידים:</span> <b style="font-family:'Rubik';direction:ltr">${fmt(leadsFromSoFar)}</b></div>
+        <div><span style="color:var(--txt-faint)">תקציב יומי:</span> <b style="font-family:'Rubik';direction:ltr">${money(dailyBudgetFromSoFar)}₪</b></div>
+        <div><span style="color:var(--txt-faint)">סגירות ביום:</span> <b style="font-family:'Rubik';direction:ltr">${fmt1(dailyClosesFromSoFar)}</b></div>
       </div>
     </div>` : ''}
     ${onTrackGoal!=null ? `<div class="notice ${onTrackGoal?'ok':'warn'}" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>${onTrackGoal
         ? 'בקצב הנוכחי תעבור את יעד הרווח ('+money(state.goalProfit)+'₪). כל הכבוד!'
-        : 'בקצב הנוכחי תגיע ל-'+money(projOperating)+'₪ — מתחת ליעד ('+money(state.goalProfit)+'₪). צריך להגביר קצב: '+(perDay!=null?fmt1(perDay)+' סגירות ביום':'יותר סגירות ביום')+'.'}</div></div>` : ''}
+        : 'בקצב הנוכחי תגיע ל-'+money(projOperating)+'₪ — מתחת ליעד ('+money(state.goalProfit)+'₪).'}</div></div>` : ''}
     ${(onTrackGoal===false && daysLeft>0) ? renderRecommendations(projOperating, state.goalProfit, daysLeft, closes, leads, days, c) : ''}`;
 }
 
@@ -3416,6 +3711,113 @@ ${fmt(capacity)} שיחות × ${fmt1(state.closeRate)}% סגירה = <b>${fmt1(
 <b>רווח תפעולי צפוי:</b> ${money(r.operating)}₪`;
     },
     f:'(פעילים × ריטיינר × (1−שחיקה/2)) + הקמות שנכנסו − עלויות (כולל שיווק חודשי מלא)'},
+  goalBreakdown:{t:'איך מחושב פירוק היעד',
+    body:()=>`<b>חשוב להבין:</b> הפירוק כאן הוא <b>חישוב תיאורטי</b> כאילו מתחילים חודש חדש.<br><br>
+החישוב לוקח:<br>
+• ${state.activeClients} לקוחות פעילים שיש לך כרגע<br>
+• ${money(state.retainer)}₪ ריטיינר ממוצע<br>
+• ${fmt1(state.churnRate)}% שחיקה חודשית<br>
+ומחשב כמה לקוחות חדשים צריך לסגור כדי להגיע ליעד הרווח.<br><br>
+<b>הוא לא מתחשב במה שכבר נכנס החודש</b> (הקמות וריטיינרים). בשביל זה תסתכל בטבלאות "השוואה למה שקרה בפועל" למטה — שם החישוב מדויק יותר ומתחשב במה שכבר קרה.`,
+    f:'חישוב תיאורטי - לקוחות פעילים נוכחיים × ריטיינר × (1-שחיקה/2) − הוצאות = רווח טבעי. פער מהיעד ÷ רווח לחדש = לקוחות חדשים נדרשים'},
+  gapFromExpected:{t:'איך מחושבת השלמת הפער מהרווח הצפוי',
+    body:()=>{
+      const r = profitExpectedEndOfMonth();
+      const gap = state.goalProfit - r.operating;
+      const profitPerNew = profitFromOneNewClient();
+      const closesNeeded = profitPerNew>0 ? gap/profitPerNew : 0;
+      return `הטבלה מציגה כמה צריך לסגור <b>מהיום ועד סוף החודש</b> כדי להשלים את פער הרווח.<br><br>
+<b>החישוב:</b><br>
+1. רווח צפוי לסוף החודש (אם נמשיך כרגיל בלי שום שינוי): <b>${money(r.operating)}₪</b><br>
+2. יעד רווח: <b>${money(state.goalProfit)}₪</b><br>
+3. פער שצריך לסגור: <b>${money(gap)}₪</b><br>
+4. רווח חודש הצטרפות מלקוח חדש (כולל שיווק): <b>${money(profitPerNew)}₪</b><br>
+5. לקוחות נדרשים = פער ÷ רווח לחדש = <b>${fmt1(closesNeeded)} לקוחות</b><br><br>
+לידים נדרשים = לקוחות ÷ אחוז המרה אפקטיבי<br>
+שיחות נדרשות = לידים × אחוז מענה<br>
+תקציב שיווק נוסף = לידים × מחיר ליד<br><br>
+<b>קצב יומי:</b> כל מספר חלקי הימים שנותרו בחודש. ככל שנותרו פחות ימים — הקצב היומי גדל.`;
+    },
+    f:'פער רווח ÷ רווח חודש הצטרפות = לקוחות נדרשים. נגזרים ממנו לידים, שיחות, ותקציב.'},
+  gapFromSoFar:{t:'איך מחושבת השלמת הפער מהרווח שנכנס בפועל',
+    body:()=>{
+      const r = profitSoFar();
+      const gap = state.goalProfit - r.operating;
+      const profitPerNew = profitFromOneNewClient();
+      const closesNeeded = profitPerNew>0 ? gap/profitPerNew : 0;
+      return `<b>תרחיש שמרני:</b> כמה לקוחות צריך לסגור כדי להגיע ליעד, <b>בהתבסס רק על מה שכבר נכנס בפועל</b> (לא צופים שיכנס יותר מהבסיס הקיים).<br><br>
+<b>החישוב:</b><br>
+1. רווח שכבר נכנס: <b>${money(r.operating)}₪</b><br>
+2. יעד: <b>${money(state.goalProfit)}₪</b><br>
+3. פער: <b>${money(gap)}₪</b><br>
+4. לקוחות נדרשים = ${money(gap)}₪ ÷ ${money(profitPerNew)}₪ = <b>${fmt1(closesNeeded)} לקוחות</b><br><br>
+<b>למה זה תרחיש שמרני?</b> כי הוא לא מניח שיכנסו עוד ריטיינרים מהבסיס הקיים. במציאות הריטיינרים מהבסיס ימשיכו להיכנס, אז הטבלה הראשית למעלה (לפי רווח צפוי) רלוונטית יותר.`;
+    },
+    f:'פער רווח ÷ רווח חודש הצטרפות = לקוחות נדרשים (תרחיש שמרני)'},
+  monthRevenue:{t:'מחזור מכירות החודש',
+    body:()=>{
+      const ret = state.retainersIncomeSoFar||0;
+      const setup = state.setupIncomeSoFar||0;
+      return `סך הכסף שנכנס לעסק החודש עד היום, מכל המקורות.<br><br>
+<b>סכום הריטיינרים שנכנסו:</b> ${money(ret)}₪<br>
+<b>סכום ההקמות שנכנסו:</b> ${money(setup)}₪<br>
+<b>סה"כ:</b> ${money(ret+setup)}₪<br><br>
+כל הנתונים נלקחים ישירות מהמאנדיי.`;
+    },
+    f:'סכום ריטיינרים שנכנסו + סכום הקמות שנכנסו (מהמאנדיי)'},
+  grossProfitSummary:{t:'רווח גולמי',
+    body:()=>{
+      const expected = grossProfitExpected();
+      const sofar = grossProfitSoFar();
+      return `הרווח הגולמי הוא הרווח לפני שמורידים הוצאות קבועות.<br><br>
+<b>רווח גולמי צפוי לסוף החודש:</b> ${money(expected)}₪<br>
+מחושב לפי כל הריטיינר הצפוי + הקמות שנכנסו, פחות סליקה, עמלות, שיווק.<br><br>
+<b>רווח גולמי היום:</b> ${money(sofar)}₪<br>
+מחושב לפי מה שכבר נכנס בפועל פחות הוצאות משתנות.<br><br>
+שני המספרים <b>לא כוללים הוצאות קבועות</b> (שהן ${money(state.fixedCosts)}₪).`;
+    },
+    f:'הכנסות − סליקה − עמלות מכירה ואונבורדינג − שיווק (בלי הוצאות קבועות)'},
+  opExpectedSummary:{t:'רווח תפעולי צפוי',
+    body:()=>{
+      const expected = profitExpectedEndOfMonth().operating;
+      const noChurn = profitExpectedNoChurn();
+      return `<b>רווח תפעולי צפוי לסוף החודש:</b> ${money(expected)}₪<br>
+חישוב הכולל את שחיקה הצפויה (${fmt1(state.churnRate/2)}% עזיבה ממוצעת בחודש).<br><br>
+<b>בלי שחיקה:</b> ${money(noChurn)}₪<br>
+אם אף לקוח לא יעזוב החודש, הרווח יהיה גבוה ב-${money(noChurn-expected)}₪.`;
+    },
+    f:'הכנסות צפויות − כל ההוצאות (כולל הוצאות קבועות והשחיקה)'},
+  activeRetSumSummary:{t:'סכום ריטיינרים פעילים',
+    body:()=>{
+      const sum = (state.activeClients||0) * (state.retainer||0);
+      return `סך הכנסה חודשית קבועה מהריטיינרים של כל הלקוחות הפעילים שלך.<br><br>
+${state.activeClients} פעילים × ${money(state.retainer)}₪ ריטיינר ממוצע = <b>${money(sum)}₪</b><br><br>
+<b>אחוז גדילה מחודש קודם</b> וגם <b>ממוצע הגדילה ההיסטורי</b> מציגים את כיוון הצמיחה.`;
+    },
+    f:'לקוחות פעילים × ריטיינר ממוצע'},
+  activeCountSummary:{t:'כמות לקוחות פעילים',
+    body:()=>`מספר הלקוחות הפעילים בסוף החודש (לפי המאנדיי).<br><br>
+כרגע: <b>${state.activeClients} לקוחות</b><br><br>
+<b>אחוז גדילה מחודש קודם</b> וגם <b>ממוצע הגדילה ההיסטורי</b> מציגים אם אתה גודל או מצטמצם.`,
+    f:'מהמאנדיי - "כמות לקוחות פעילים שהיה בסוף חודש"'},
+  nextMonthProfit:{t:'רווח צפוי לחודש הבא',
+    body:()=>{
+      const n = state.nextMonthMonthsBack||3;
+      const next = profitNextMonth();
+      return `<b>הערכת הרווח לחודש הבא</b> על סמך המגמות שלך מ-${n} חודשים אחרונים.<br><br>
+<b>החישוב:</b><br>
+1. בסיס: ${state.activeClients} פעילים × ${money(state.retainer)}₪ ריטיינר × (1 − ${fmt1(state.churnRate)}% שחיקה)<br>
+2. + ממוצע הקמות שנכנסות בחודש (מ-${n} חודשים אחרונים)<br>
+3. + ממוצע לקוחות שמצטרפים לריטיינר × ${money((compute().retainerForNew))}₪ ריטיינר חדש<br>
+4. − סליקה, עמלות, שיווק (ממוצע), הוצאות קבועות<br>
+= <b>${money(next)}₪</b>`;
+    },
+    f:'(פעילים × ריטיינר × (1−שחיקה)) + ממוצע הקמות + ממוצע ריטיינרים חדשים − עלויות'},
+  profitPctSummary:{t:'אחוז רווח מהמחזור',
+    body:()=>`<b>אחוז רווח תפעולי:</b> רווח תפעולי שכבר נכנס ÷ מחזור החודש.<br>
+<b>אחוז רווח גולמי:</b> רווח גולמי ÷ מחזור החודש.<br><br>
+מאפשר לראות עד כמה הפעילות שלך רווחית — לא רק כמה כסף יצרת אלא איזה % מהכסף נשאר אצלך.`,
+    f:'רווח (תפעולי/גולמי) ÷ מחזור × 100%'},
 };
 function help(key){return `<span class="help" onclick="openHelp('${key}')">?</span>`;}
 function openHelp(key){
