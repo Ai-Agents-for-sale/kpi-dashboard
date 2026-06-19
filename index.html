@@ -2699,9 +2699,9 @@ function detectMoves(){
   const monthsBack = state.insights.moveDetectionMonthsBack;
   const threshold = state.insights.moveThreshold;
   const allMonths = [];
-  if(state.mondayRaw && state.mondayRaw.current) allMonths.push({...state.mondayRaw.current, monthName:'נוכחי'});
+  if(state.mondayRaw && state.mondayRaw.current) allMonths.push({...state.mondayRaw.current, monthName:'החודש'});
   if(state.mondayRaw && state.mondayRaw.history){
-    state.mondayRaw.history.forEach((m,i)=> allMonths.push({...m, monthName:`לפני ${i+1}`}));
+    state.mondayRaw.history.forEach((m,i)=> allMonths.push({...m, monthName:i===0?'חודש שעבר':`לפני ${i+1} חודשים`}));
   }
   const slice = allMonths.slice(0, monthsBack+1);
   if(slice.length < 2) return [];
@@ -2882,6 +2882,7 @@ function generateRecommendations(){
   const c = compute(state);
   const forwardMonths = state.insights.recoForwardMonths;
   const avgWindow = state.insights.recoAvgWindow;
+  const avgMonths = state.avgMonths || (state.churnRate > 0 ? 100/state.churnRate : 30);  // חודשי חיים ממוצעים
 
   // === המלצה 1: שיפור אחוז סגירה ===
   const currentCloseRate = c.close*100;
@@ -2894,16 +2895,27 @@ function generateRecommendations(){
       recos.push({
         title:`שפר את אחוז הסגירה ל-${fmt1(targetRate)}%`,
         oneLiner:`עליית 5 נקודות באחוז הסגירה מ-${fmt1(currentCloseRate)}% ל-${fmt1(targetRate)}%`,
-        why:`כל אחוז סגירה נוסף = יותר לקוחות מאותם לידים = יותר הקמות + יותר ריטיינרים מצטברים. הריטיינר מצטבר לאורך זמן (${fmt1(c.avgMonths)} חודשים בממוצע לכל לקוח).`,
+        why:`כל אחוז סגירה נוסף = יותר לקוחות מאותם לידים = יותר הקמות + יותר ריטיינרים מצטברים. הריטיינר מצטבר לאורך זמן (${fmt1(avgMonths)} חודשים בממוצע לכל לקוח).`,
         risk:`דורש אימון נציגים והשקעה בתהליכי המכירה. לוקח 2-4 חודשים לראות תוצאות מלאות.`,
         impact:profitBoost,
         impactLabel:'תוספת חודשית לרווח',
         calcExplanation:`
-<b>איך חישבנו את ${money(profitBoost)}₪?</b><br><br>
-<b>היום:</b> ${fmt(state.leads)} לידים × ${fmt1(c.answer*100)}% מענה × ${fmt1(c.close*100)}% סגירה = ${fmt1(state.leads * c.answer * c.close)} לקוחות חדשים<br><br>
-<b>אחרי השיפור:</b> ${fmt(state.leads)} לידים × ${fmt1(c.answer*100)}% מענה × ${fmt1(targetRate)}% סגירה = ${fmt1(state.leads * c.answer * (targetRate/100))} לקוחות חדשים<br><br>
-<b>הפרש:</b> ${fmt1((state.leads * c.answer * (targetRate/100)) - (state.leads * c.answer * c.close))} לקוחות נוספים בחודש<br><br>
-כל לקוח נוסף מכניס ~${money(profitFromOneNewClient())}₪ ברווח חודש ראשון + ריטיינר מצטבר.`,
+<b>הקו מחשבה:</b><br><br>
+אותם לידים נכנסים, אותם נציגים עונים - אבל סוגרים אחוז גבוה יותר. אז יותר לקוחות מצטרפים בלי שום עלות נוספת.<br><br>
+
+<b>הנתונים שלך:</b><br><br>
+• לידים בחודש: <b>${fmt(state.leads)}</b><br>
+• אחוז מענה: <b>${fmt1(c.answer*100)}%</b><br>
+• אחוז סגירה כיום: <b>${fmt1(currentCloseRate)}%</b> → מוצע: <b>${fmt1(targetRate)}%</b><br><br>
+
+<b>החישוב:</b><br><br>
+לקוחות חדשים כיום = ${fmt(state.leads)} × ${fmt1(c.answer*100)}% × ${fmt1(currentCloseRate)}% = <b>${fmt1(state.leads * c.answer * c.close)} לקוחות</b><br><br>
+לקוחות חדשים אחרי השיפור = ${fmt(state.leads)} × ${fmt1(c.answer*100)}% × ${fmt1(targetRate)}% = <b>${fmt1(state.leads * c.answer * (targetRate/100))} לקוחות</b><br><br>
+הפרש: <b>${fmt1((state.leads * c.answer * (targetRate/100)) - (state.leads * c.answer * c.close))} לקוחות נוספים בחודש</b><br><br>
+
+כל לקוח נוסף מכניס ${money(profitFromOneNewClient())}₪ ברווח חודש ראשון (הקמה + ריטיינר ראשון פחות עלויות).<br><br>
+תוספת חודשית לרווח: <b style="color:var(--accent)">+${money(profitBoost)}₪</b><br><br>
+זה רק חודש ראשון - הריטיינר ימשיך להיכנס מהם גם בחודשים הבאים.`,
       });
     }
   }
@@ -2924,18 +2936,32 @@ function generateRecommendations(){
       recos.push({
         title:`הורד מחיר הקמה ל-${money(reducedSetup)}₪`,
         oneLiner:`ירידה של 30% במחיר ההקמה (מ-${money(state.setupFee)} ל-${money(reducedSetup)})`,
-        why:`מחיר הקמה נמוך הופך את ההצעה לאטרקטיבית יותר. הנחה: ${closesUpliftPct}% יותר סגירות. הריטיינר נשאר ${money(c.retainerForNew)}₪ - מצטבר ב-${fmt1(c.avgMonths)} חודשים = ${money(c.retainerForNew*c.avgMonths)}₪ ללקוח.`,
+        why:`מחיר הקמה נמוך הופך את ההצעה לאטרקטיבית יותר. הנחה: ${closesUpliftPct}% יותר סגירות. הריטיינר נשאר ${money(c.retainerForNew)}₪ - מצטבר ב-${fmt1(avgMonths)} חודשים = ${money(c.retainerForNew*avgMonths)}₪ ללקוח.`,
         risk:`עמלת המכירה תצטרך לעלות כדי שלא לפגוע בנציגים. צריך לבדוק שאחוז השחיקה לא קופץ.`,
         impact:delta,
         impactLabel:`רווח נוסף ב-${forwardMonths} חודשים`,
         calcExplanation:`
-<b>איך חישבנו את ${money(delta)}₪?</b><br><br>
-<b>תרחיש נוכחי</b> (מחיר הקמה ${money(state.setupFee)}, ${fmt(state.leads)} לידים):<br>
-רווח צפוי בעוד ${forwardMonths} חודשים = <b>${money(before)}₪</b><br><br>
-<b>תרחיש חדש</b> (מחיר הקמה ${money(reducedSetup)}, ${fmt(sim.leads)} לידים בעקבות אטרקטיביות):<br>
-רווח צפוי בעוד ${forwardMonths} חודשים = <b>${money(after)}₪</b><br><br>
-<b>הפרש: ${money(delta)}₪</b><br><br>
-חישוב הסגירות הנוספות: ${closesUpliftPct}% יותר לידים שמתקבלים מאותו תקציב שיווק.`,
+<b>הקו מחשבה:</b><br><br>
+מחיר הקמה נמוך יותר = יותר לקוחות סוגרים. אבל כל לקוח מכניס פחות כסף מההקמה. השאלה: האם הריטיינר המצטבר ממספר הלקוחות הנוסף מפצה על הירידה ברווח ההקמה?<br><br>
+
+<b>הנתונים שלך:</b><br><br>
+• הקמה כיום: <b>${money(state.setupFee)}₪</b> → מוצע: <b>${money(reducedSetup)}₪</b><br>
+• ירידה של 30% בהקמה<br>
+• הנחת עבודה: ${closesUpliftPct}% יותר סגירות<br>
+• ריטיינר חדש: <b>${money(c.retainerForNew)}₪ נשאר זהה</b><br>
+• ממוצע חודשי חיים: <b>${fmt1(avgMonths)} חודשים</b><br><br>
+
+<b>החישוב:</b><br><br>
+תרחיש נוכחי: רווח לקוח = ${money(state.setupFee*(1-c.commPct))}₪ נטו מהקמה + ${money(c.retainerForNew*avgMonths*(1-c.onbCommPct-c.procPct))}₪ ריטיינרים = <b>${money(state.setupFee*(1-c.commPct) + c.retainerForNew*avgMonths*(1-c.onbCommPct-c.procPct))}₪</b><br><br>
+
+תרחיש חדש: רווח לקוח = ${money(reducedSetup*(1-c.commPct))}₪ נטו מהקמה + ${money(c.retainerForNew*avgMonths*(1-c.onbCommPct-c.procPct))}₪ ריטיינרים = <b>${money(reducedSetup*(1-c.commPct) + c.retainerForNew*avgMonths*(1-c.onbCommPct-c.procPct))}₪</b><br><br>
+
+בעוד ${forwardMonths} חודשים:<br>
+• רווח כיום: <b>${money(before)}₪</b><br>
+• רווח אחרי המהלך: <b>${money(after)}₪</b><br>
+• הפרש: <b style="color:var(--accent)">+${money(delta)}₪</b><br><br>
+
+הריטיינר המצטבר מהלקוחות הנוספים מפצה על הירידה ברווח ההקמה ועוד.`,
       });
     }
   }
@@ -2952,18 +2978,28 @@ function generateRecommendations(){
       recos.push({
         title:`העלה ריטיינר ללקוחות חדשים ל-${money(newRetainer)}₪`,
         oneLiner:`עלייה של 15% במחיר הריטיינר (מ-${money(c.retainerForNew)} ל-${money(newRetainer)})`,
-        why:`כל לקוח חדש שיצטרף ישלם ${money(newRetainer-c.retainerForNew)}₪ יותר בכל חודש, ל-${fmt1(c.avgMonths)} חודשים בממוצע = ${money((newRetainer-c.retainerForNew)*c.avgMonths)}₪ תוספת נטו ללקוח.`,
+        why:`כל לקוח חדש שיצטרף ישלם ${money(newRetainer-c.retainerForNew)}₪ יותר בכל חודש, ל-${fmt1(avgMonths)} חודשים בממוצע = ${money((newRetainer-c.retainerForNew)*avgMonths)}₪ תוספת נטו ללקוח.`,
         risk:`אחוז הסגירה עלול לרדת אם המחיר גבוה מדי לשוק. תבדוק עם 3-5 לידים פוטנציאליים לפני המעבר המלא.`,
         impact:delta,
         impactLabel:`רווח נוסף ב-${forwardMonths} חודשים`,
         calcExplanation:`
-<b>איך חישבנו את ${money(delta)}₪?</b><br><br>
-<b>תרחיש נוכחי</b> (ריטיינר חדש ${money(c.retainerForNew)}):<br>
-רווח צפוי בעוד ${forwardMonths} חודשים = <b>${money(before)}₪</b><br><br>
-<b>תרחיש חדש</b> (ריטיינר חדש ${money(newRetainer)}):<br>
-רווח צפוי בעוד ${forwardMonths} חודשים = <b>${money(after)}₪</b><br><br>
-<b>הפרש: ${money(delta)}₪</b><br><br>
-המקור לרווח הנוסף: כל לקוח שיצטרף בחודשים האלה ישלם ${money(newRetainer-c.retainerForNew)}₪ יותר בחודש, וכל חודש נוסף שהוא נשאר מצטבר לרווח.`,
+<b>הקו מחשבה:</b><br><br>
+כל לקוח חדש משלם ריטיינר חודשי. אם תעלה את הריטיינר ב-15%, כל לקוח חדש יכניס יותר כסף לאורך כל חודש שהוא נשאר.<br><br>
+
+<b>הנתונים שלך:</b><br><br>
+• ריטיינר חדש היום: <b>${money(c.retainerForNew)}₪</b><br>
+• ריטיינר חדש מוצע: <b>${money(newRetainer)}₪</b><br>
+• הפרש פר לקוח: <b>${money(newRetainer - c.retainerForNew)}₪ לחודש</b><br>
+• ממוצע חודשי חיים: <b>${fmt1(avgMonths)} חודשים</b><br>
+• ממוצע סגירות בחודש (לפי ${avgWindow} חודשים אחרונים): <b>${fmt1(profitNextMonth(state, avgWindow, 1).avgClosesPerMonth)} לקוחות</b><br><br>
+
+<b>החישוב:</b><br><br>
+תוספת ללקוח בודד = ${money(newRetainer - c.retainerForNew)}₪ × ${fmt1(avgMonths)} חודשים = <b>${money((newRetainer-c.retainerForNew)*avgMonths)}₪</b><br><br>
+
+בעוד ${forwardMonths} חודשים, הסימולציה רצה חודש-אחר-חודש:<br>
+• רווח כיום: <b>${money(before)}₪</b><br>
+• רווח אחרי המהלך: <b>${money(after)}₪</b><br>
+• הפרש: <b style="color:var(--accent)">+${money(delta)}₪</b>`,
       });
     }
   }
@@ -2985,12 +3021,22 @@ function generateRecommendations(){
         impact:impact,
         impactLabel:'תוספת חודשית פוטנציאלית',
         calcExplanation:`
-<b>איך חישבנו את ${money(impact)}₪?</b><br><br>
-נציג נוסף עובד ${state.workHoursPerDay} שעות × ${state.daysMonth} ימים = ${fmt(extraCalls)} שיחות בחודש<br>
+<b>הקו מחשבה:</b><br><br>
+הצוות שלך לא מסוגל לקבל יותר שיחות. אם תקבל יותר לידים בלי תוספת כוח אדם, חלקם פשוט לא ייענו. נציג נוסף = יותר שיחות = יותר סגירות.<br><br>
+
+<b>הנתונים שלך:</b><br><br>
+• צוות נוכחי: <b>${state.teamSize} נציגים</b><br>
+• שעות עבודה ליום: <b>${state.workHoursPerDay}</b><br>
+• דקות לשיחה: <b>${state.callMinutes}</b><br>
+• ימי עבודה בחודש: <b>${state.daysMonth}</b><br>
+• אחוז סגירה: <b>${fmt1(c.close*100)}%</b><br><br>
+
+<b>החישוב:</b><br><br>
+נציג נוסף יכול לבצע = ${state.workHoursPerDay} שעות × 60 דקות ÷ ${state.callMinutes} דקות לשיחה = ${fmt1(state.workHoursPerDay*60/state.callMinutes)} שיחות ליום<br>
+× ${state.daysMonth} ימי עבודה = <b>${fmt(extraCalls)} שיחות בחודש</b><br><br>
 × ${fmt1(c.close*100)}% סגירה = <b>${fmt1(extraCloses)} סגירות נוספות בחודש</b><br><br>
-כל סגירה = ${money(profitFromOneNewClient())}₪ רווח חודש ראשון<br><br>
-${fmt1(extraCloses)} × ${money(profitFromOneNewClient())} = <b>${money(impact)}₪ חודשי</b><br><br>
-זה רווח חודש ראשון בלבד - בנוסף, הריטיינר של אותם לקוחות יצטבר לאורך זמן.`,
+× ${money(profitFromOneNewClient())}₪ רווח חודש ראשון מכל לקוח = <b style="color:var(--accent)">+${money(impact)}₪ חודשי</b><br><br>
+זה רק רווח חודש ראשון - הריטיינר של הלקוחות הללו יצטבר לאורך זמן.`,
       });
     }
   }
@@ -3081,7 +3127,7 @@ function renderInsights(){
       }
 
       // כותרת בעברית פשוטה
-      const monthLabel = monthName === 'נוכחי' ? 'החודש' : monthName;
+      const monthLabel = monthName === 'החודש' ? 'החודש' : monthName;
       const sentences = monthMoves.map(mv => {
         const verb = verbForParam(mv.param.key, mv.pctChange);
         return `${verb} מ-${fmt1(mv.fromValue)}${mv.param.unit} ל-${fmt1(mv.toValue)}${mv.param.unit}`;
@@ -3239,41 +3285,103 @@ function showMoveAnalysis(key){
   const data = window._insightAnalyses && window._insightAnalyses[key];
   if(!data) return;
   let title = '', body = '';
+
   if(data.type === 'reco'){
     title = 'איך חישבנו את ההמלצה';
     body = data.reco.calcExplanation;
   } else if(data.type === 'insight'){
     const item = data.item;
-    title = 'איך חישבנו את התובנה';
-    body = `<b>${item.metric}</b><br><br>
-ערך נוכחי: <b>${fmt1(item.currentValue)}${item.unit||''}</b><br>
-ממוצע השוואה: <b>${fmt1(item.averageValue)}${item.unit||''}</b><br>
-שינוי: <b style="color:${item.pctChange>=0?'var(--accent)':'var(--red)'}">${item.pctChange>=0?'+':''}${fmt1(item.pctChange)}%</b><br><br>
-${item.betterIf === 'higher' ? (item.pctChange>=0?'עלייה במטריקה זו טובה לעסק.':'ירידה במטריקה זו מחלישה את העסק.') : (item.pctChange<0?'ירידה במטריקה זו טובה לעסק.':'עלייה במטריקה זו מחלישה את העסק.')}`;
+    title = 'איך זיהינו את התובנה';
+    const dir = item.pctChange >= 0 ? 'עלה' : 'ירד';
+    const isGood = (item.betterIf === 'higher' && item.pctChange > 0) || (item.betterIf === 'lower' && item.pctChange < 0);
+    const window = state.insights.insightsCompareWindow;
+    body = `
+<b>הקו מחשבה:</b><br><br>
+לקחנו את הערך שלך החודש: <b>${fmt1(item.currentValue)}${item.unit||''}</b><br>
+לקחנו את הממוצע של ${window} חודשים אחרונים: <b>${fmt1(item.averageValue)}${item.unit||''}</b><br><br>
+השווינו: ${item.metric} ${dir} ב-${Math.abs(item.pctChange).toFixed(1)}%.<br><br>
+<b>${isGood ? '✓ זה משפר את העסק.' : '⚠ זה מחליש את העסק.'}</b>`;
   } else {
-    // מהלך שזוהה
-    title = `איך חישבנו את ההשפעה של המהלך`;
+    // === מהלך שזוהה - הסבר בדיוק כמו בצ'אט ===
+    title = `איך חישבנו אם המהלך השתלם`;
     const im = data.impact;
     if(!im){
-      body = 'אין מספיק נתונים לניתוח (חסר חודשים לפני או אחרי המהלך).';
+      body = 'אין מספיק נתונים לניתוח. צריך לפחות חודש לפני המהלך וחודש אחרי.';
     } else {
+      const c = compute(state);
       const window = state.insights.moveBeforeAfterWindow;
-      body = `<b>השוואה: ${window} חודשים לפני המהלך מול ${window} חודשים אחריו</b><br><br>
-<b>מטריקות מפתח:</b><br>
-• סגירות: ${fmt1(im.metrics.closes.before)} → ${fmt1(im.metrics.closes.after)} בחודש<br>
-• מחיר הקמה: ${money(im.metrics.setupAvg.before)}₪ → ${money(im.metrics.setupAvg.after)}₪<br>
-• מחזור: ${money(im.metrics.revenue.before)}₪ → ${money(im.metrics.revenue.after)}₪<br>
-• שחיקה: ${fmt1(im.metrics.churnRate.before)}% → ${fmt1(im.metrics.churnRate.after)}%<br>
-• לקוחות פעילים: ${fmt1(im.metrics.activeEnd.before)} → ${fmt1(im.metrics.activeEnd.after)}<br><br>
-<b>חישוב נקודת איזון:</b><br>
-ההפסד המיידי (חודש ראשון): ${money(Math.abs(im.initialDiff))}₪<br>
-התרומה החודשית: ${im.monthlyDiff>=0?'+':''}${money(im.monthlyDiff)}₪<br><br>
-${im.monthlyDiff > 0 && im.initialDiff < 0 ? `נקודת איזון = ${money(Math.abs(im.initialDiff))} ÷ ${money(im.monthlyDiff)} = <b>${fmt1(im.breakEvenMonths)} חודשים</b>` :
-  im.monthlyDiff >= 0 && im.initialDiff >= 0 ? '<b>המהלך משתלם מיד</b> - גם בטווח קצר וגם ארוך.' :
-  '<b>המהלך לא משתלם</b> - התרומה החודשית שלילית.'}`;
+      const avgMonths = state.avgMonths || (state.churnRate > 0 ? 100/state.churnRate : 30);
+      // נתונים לפני
+      const setupBefore = im.metrics.setupAvg.before;
+      const closesBefore = im.metrics.closes.before;
+      const retainerBefore = state.retainer;  // נשאר זהה (לקוחות פעילים)
+      // נתונים אחרי
+      const setupAfter = im.metrics.setupAvg.after;
+      const closesAfter = im.metrics.closes.after;
+      const retainerAfter = state.retainer;
+      // עמלת מכירה - אפשר להוציא מהמהלכים שזוהו
+      let commBefore = c.commPct;
+      let commAfter = c.commPct;
+      data.monthMoves.forEach(mv => {
+        if(mv.param.key === 'salesCommPct'){
+          commBefore = mv.fromValue/100;
+          commAfter = mv.toValue/100;
+        }
+      });
+      // חישוב רווח לקוח לפני ואחרי
+      const setupNetBefore = setupBefore * (1 - commBefore);
+      const setupNetAfter = setupAfter * (1 - commAfter);
+      const retainerNet = retainerBefore * (1 - c.onbCommPct - c.procPct);
+      const ltvBefore = setupNetBefore + (retainerNet * avgMonths);
+      const ltvAfter = setupNetAfter + (retainerNet * avgMonths);
+      // רווח חודשי
+      const monthlyBefore = ltvBefore * closesBefore;
+      const monthlyAfter = ltvAfter * closesAfter;
+      const monthlyDelta = monthlyAfter - monthlyBefore;
+      // נקודת איזון
+      const initialLoss = (setupNetBefore - setupNetAfter) * closesBefore;  // הפסד מההקמה
+      const extraClients = closesAfter - closesBefore;
+      const monthlyGain = extraClients * retainerNet;
+      const breakEven = monthlyGain > 0 ? initialLoss / monthlyGain : null;
+
+      body = `
+<b>3 צעדים כדי לבדוק אם המהלך השתלם:</b><br><br>
+
+<b>1. רווח לקוח בודד = (הקמה − עמלת מכירה) + (ריטיינר נטו × ממוצע חודשי חיים)</b><br><br>
+<b>2. רווח חודשי = רווח לקוח × ממוצע לקוחות שגויסו בחודש</b><br><br>
+<b>3. השוואה בין ישן לחדש = מי שגבוה יותר מנצח</b><br><br>
+<hr style="border:none;border-top:1px solid var(--line-soft);margin:14px 0">
+
+<b>הנתונים שלך:</b><br><br>
+
+<b>לפני המהלך:</b><br>
+${money(setupBefore)}₪ הקמה × (1 − ${fmt1(commBefore*100)}% עמלה) = <b>${money(setupNetBefore)}₪</b> נקי מהקמה<br>
++ (${money(retainerNet)}₪ ריטיינר נטו × ${fmt1(avgMonths)} חודשים) = <b>${money(retainerNet*avgMonths)}₪</b> מריטיינר<br>
+= <b>${money(ltvBefore)}₪ רווח כולל מלקוח</b><br>
+× ${fmt1(closesBefore)} לקוחות בחודש = <b style="color:var(--accent)">${money(monthlyBefore)}₪ חודשי</b><br><br>
+
+<b>אחרי המהלך:</b><br>
+${money(setupAfter)}₪ הקמה × (1 − ${fmt1(commAfter*100)}% עמלה) = <b>${money(setupNetAfter)}₪</b> נקי מהקמה<br>
++ (${money(retainerNet)}₪ ריטיינר נטו × ${fmt1(avgMonths)} חודשים) = <b>${money(retainerNet*avgMonths)}₪</b> מריטיינר<br>
+= <b>${money(ltvAfter)}₪ רווח כולל מלקוח</b><br>
+× ${fmt1(closesAfter)} לקוחות בחודש = <b style="color:var(--accent)">${money(monthlyAfter)}₪ חודשי</b><br><br>
+
+<b>השוואה:</b><br>
+${monthlyDelta >= 0 
+  ? `החדש מנצח ב-<b style="color:var(--accent)">${money(monthlyDelta)}₪</b> פר חודש גיוס.` 
+  : `הישן מנצח ב-<b style="color:var(--red)">${money(Math.abs(monthlyDelta))}₪</b> פר חודש גיוס.`}<br><br>
+
+<hr style="border:none;border-top:1px solid var(--line-soft);margin:14px 0">
+
+<b>נקודת איזון (מתי המהלך נהיה רווחי):</b><br><br>
+${breakEven == null ? 
+  (monthlyDelta >= 0 ? '<b style="color:var(--accent)">המהלך משתלם מיד</b> - יותר רווח לקוח וגם יותר לקוחות.' : '<b style="color:var(--red)">המהלך לא משתלם</b> - גם פחות לקוחות וגם פחות רווח לקוח.') :
+  breakEven <= 0 ? '<b style="color:var(--accent)">המהלך משתלם מיד</b> - לא היה הפסד התחלתי.' :
+  `הפסד מההקמה ÷ רווח חודשי מלקוחות נוספים = ${money(initialLoss)} ÷ ${money(monthlyGain)} = <b>חודש ${fmt1(breakEven)}</b>.`
+}`;
     }
   }
-  document.getElementById('modalBox').innerHTML=`<h3>${svg('info')} ${title}</h3><div style="font-size:13px;color:var(--txt-dim);line-height:1.7">${body}</div><button onclick="closeModal()">הבנתי</button>`;
+  document.getElementById('modalBox').innerHTML=`<h3>${svg('info')} ${title}</h3><div style="font-size:13.5px;color:var(--txt-dim);line-height:1.8">${body}</div><button onclick="closeModal()">הבנתי</button>`;
   document.getElementById('modalBg').classList.add('show');
 }
 
