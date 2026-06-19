@@ -2973,6 +2973,11 @@ function renderInsights(){
     }
     return opts;
   };
+  const dd = (key, current, max, label) => `
+    <div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--txt-faint)">
+      <span>${label}:</span>
+      <select onchange="changeInsightsParam('${key}', this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:5px;padding:2px 6px;font-size:11px">${monthOpts(current, max)}</select>
+    </div>`;
 
   // === חלק 1: מהלכים שזוהו ===
   const moves = detectMoves();
@@ -2984,144 +2989,107 @@ function renderInsights(){
 
   let movesHtml = '';
   if(moves.length === 0){
-    movesHtml = `<div class="hint" style="padding:14px;text-align:center">לא זוהו מהלכים משמעותיים (שינוי מעל ${isn.moveThreshold}%) ב-${isn.moveDetectionMonthsBack} חודשים האחרונים. תוכל להוריד את סף הזיהוי בדרופדאון למעלה.</div>`;
+    movesHtml = `<div class="hint" style="padding:12px;text-align:center;font-size:12.5px">לא זוהו מהלכים משמעותיים</div>`;
   } else {
     movesHtml = Object.keys(movesByMonth).map(monthName => {
       const monthMoves = movesByMonth[monthName];
-      const impactAnalysis = analyzeMoveImpact(monthMoves[0]); // ניתוח אחד לכל חודש
-      let analysisHtml = '';
+      const impactAnalysis = analyzeMoveImpact(monthMoves[0]);
+      // השורה התחתונה: מה השתנה, האם השתלם, ההשפעה החודשית
+      let verdict = '';
+      let monthlyImpact = '';
       if(impactAnalysis){
-        const m = impactAnalysis.metrics;
-        const monthlyDiffColor = impactAnalysis.monthlyDiff >= 0 ? 'var(--accent)' : 'var(--red)';
-        const breakEvenText = impactAnalysis.breakEvenMonths === 0 ? '<b style="color:var(--accent)">משתלם מהחודש הראשון</b>' :
-                              impactAnalysis.breakEvenMonths === -1 ? '<b style="color:var(--red)">לא משתלם בטווח הנראה</b>' :
-                              impactAnalysis.breakEvenMonths==null ? '—' :
-                              `<b style="color:var(--amber)">אחרי ${fmt1(impactAnalysis.breakEvenMonths)} חודשים</b>`;
-        analysisHtml = `
-          <div style="margin-top:12px;padding:12px;background:var(--bg-1);border-radius:8px">
-            <div style="font-size:12.5px;color:var(--txt-faint);margin-bottom:8px">השוואת ${isn.moveBeforeAfterWindow} חודשים לפני ואחרי</div>
-            <table style="width:100%;font-size:12.5px;border-collapse:collapse">
-              <tr style="color:var(--txt-faint);font-size:11px">
-                <td style="padding:4px">מטריקה</td>
-                <td style="padding:4px;text-align:left">לפני</td>
-                <td style="padding:4px;text-align:left">אחרי</td>
-                <td style="padding:4px;text-align:left">שינוי</td>
-              </tr>
-              ${Object.keys(m).map(k => {
-                const v = m[k];
-                if(!v.before && !v.after) return '';
-                const pct = v.before > 0 ? ((v.after-v.before)/v.before)*100 : 0;
-                const fmt_ = k==='revenue' ? money : (k.includes('Rate')||k.includes('Pct') ? (x=>fmt1(x)+'%') : fmt1);
-                return `<tr style="border-top:1px solid var(--line-soft)">
-                  <td style="padding:6px 4px">${v.label}</td>
-                  <td style="padding:6px 4px;text-align:left;font-family:'Rubik';direction:ltr">${fmt_(v.before)}</td>
-                  <td style="padding:6px 4px;text-align:left;font-family:'Rubik';direction:ltr">${fmt_(v.after)}</td>
-                  <td style="padding:6px 4px;text-align:left;font-family:'Rubik';direction:ltr;color:${pct>=0?'var(--accent)':'var(--red)'}">${pct>=0?'+':''}${fmt1(pct)}%</td>
-                </tr>`;
-              }).join('')}
-            </table>
-            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:12.5px">
-              <div>נקודת איזון: ${breakEvenText}</div>
-              <div style="color:${monthlyDiffColor}">תרומה חודשית: ${impactAnalysis.monthlyDiff>=0?'+':''}${money(impactAnalysis.monthlyDiff)}₪</div>
-            </div>
-          </div>`;
+        const m = impactAnalysis.monthlyDiff;
+        if(impactAnalysis.breakEvenMonths === 0){
+          verdict = `<span style="color:var(--accent)">משתלם מיד</span>`;
+        } else if(impactAnalysis.breakEvenMonths === -1){
+          verdict = `<span style="color:var(--red)">לא משתלם</span>`;
+        } else if(impactAnalysis.breakEvenMonths != null){
+          verdict = `משתלם אחרי <b style="color:var(--amber)">${fmt1(impactAnalysis.breakEvenMonths)} חודשים</b>`;
+        }
+        if(m){
+          monthlyImpact = `אחרי שמשתלם: <b style="color:${m>=0?'var(--accent)':'var(--red)'}">${m>=0?'+':''}${money(m)}₪ לחודש</b>`;
+        }
       }
-      return `<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:14px;margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <h4 style="margin:0;font-size:14px">${monthName === 'נוכחי' ? 'חודש נוכחי' : monthName.replace('לפני', 'לפני')}</h4>
-          <span class="tag amber">${monthMoves.length} שינויים</span>
-        </div>
-        ${monthMoves.map(mv => `<div style="padding:8px 10px;background:var(--bg-1);border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:13px">
-          <div>${mv.param.label}</div>
-          <div style="font-family:'Rubik';direction:ltr">
-            <span style="color:var(--txt-faint)">${fmt1(mv.fromValue)}${mv.param.unit}</span>
-            <span style="margin:0 6px;color:${mv.pctChange>=0?'var(--accent)':'var(--red)'}">${moveSymbol(mv.pctChange, mv.param.betterIf)} ${mv.pctChange>=0?'+':''}${fmt1(mv.pctChange)}%</span>
-            <span><b>${fmt1(mv.toValue)}${mv.param.unit}</b></span>
-          </div>
-        </div>`).join('')}
-        ${analysisHtml}
+      // תיאור המהלכים (בקצרה - שמות המטריקות שזזו)
+      const changes = monthMoves.map(mv => 
+        `${mv.param.label}: <span style="font-family:'Rubik';direction:ltr"><span style="color:var(--txt-faint)">${fmt1(mv.fromValue)}</span> → <b>${fmt1(mv.toValue)}${mv.param.unit}</b></span>`
+      ).join(' · ');
+
+      return `<div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+        <div style="font-size:11.5px;color:var(--txt-faint);margin-bottom:6px">${monthName === 'נוכחי' ? 'החודש' : monthName}</div>
+        <div style="font-size:13px;line-height:1.6;margin-bottom:8px">${changes}</div>
+        ${verdict || monthlyImpact ? `<div style="font-size:12.5px;padding-top:8px;border-top:1px solid var(--line-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <div>${verdict}</div>
+          <div style="color:var(--txt-dim)">${monthlyImpact}</div>
+        </div>` : ''}
       </div>`;
     }).join('');
   }
 
-  // === חלק 2: תובנות על המצב הנוכחי ===
+  // === חלק 2: תובנות ===
   const insights = generateInsights();
-  const insightCard = (item, isStrength) => {
+  const insightLine = (item, isStrength) => {
     const color = isStrength ? 'var(--accent)' : 'var(--red)';
     const arrow = item.pctChange >= 0 ? '↑' : '↓';
-    return `<div style="padding:10px 12px;background:var(--bg-1);border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-      <div style="font-size:13px">${item.metric}${item.isTrend?'':''}</div>
-      <div style="font-family:'Rubik';direction:ltr;color:${color};font-size:13px">
-        ${arrow} ${item.pctChange>=0?'+':''}${fmt1(item.pctChange)}%
-      </div>
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px">
+      <span>${item.metric}</span>
+      <span style="font-family:'Rubik';direction:ltr;color:${color}">${arrow} ${item.pctChange>=0?'+':''}${fmt1(item.pctChange)}%</span>
     </div>`;
   };
 
-  // === חלק 3: המלצות ===
+  // === חלק 3: המלצות פשוטות ===
   const recos = generateRecommendations();
   const recoCards = recos.map((r,i) => `
-    <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:14px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-        <h4 style="margin:0;font-size:14px">${i+1}. ${r.title}</h4>
-        ${r.impact ? `<span class="tag green">+${money(r.impact)}₪</span>` : ''}
+    <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:5px;flex-wrap:wrap">
+        <h4 style="margin:0;font-size:14px;font-weight:600">${r.title}</h4>
+        ${r.impact ? `<span class="tag green" style="font-size:11px">+${money(r.impact)}₪</span>` : ''}
       </div>
-      <div style="font-size:13px;color:var(--txt-dim);line-height:1.6;margin-bottom:8px">${r.desc}</div>
-      <div style="font-size:11.5px;color:var(--txt-faint);background:var(--bg-1);padding:8px 10px;border-radius:6px"><b>איך לבצע:</b> ${r.action}</div>
+      <div style="font-size:12.5px;color:var(--txt-dim);line-height:1.6">${r.desc}</div>
     </div>`).join('');
 
-  // === הרכבה הסופית ===
+  // === הרכבה ===
   document.getElementById('content').innerHTML = `
   <div class="page-head"><h1>תובנות והמלצות</h1>
-    <p>זיהוי אוטומטי של מהלכים, ניתוח חוזקות וחולשות, והמלצות מותאמות לנתונים שלך.</p>
+    <p>מה קרה, מה ההשפעה, ומה כדאי לעשות.</p>
   </div>
 
   <!-- חלק 1: מהלכים שזוהו -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-h">
       <h3>🔍 מהלכים שזוהו</h3>
-      <span class="sub">שינויים משמעותיים בנתונים, וניתוח אם השתלמו</span>
+      <span class="sub">${moves.length>0?`${Object.keys(movesByMonth).length} חודשים עם שינויים`:'אין שינויים משמעותיים'}</span>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px;background:var(--bg-1);border-radius:8px">
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <label style="font-size:10.5px;color:var(--txt-faint)">חפש מהלכים אחורה</label>
-        <select onchange="changeInsightsParam('moveDetectionMonthsBack', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.moveDetectionMonthsBack, totalHistory)}</select>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <label style="font-size:10.5px;color:var(--txt-faint)">חלון השוואה לפני/אחרי</label>
-        <select onchange="changeInsightsParam('moveBeforeAfterWindow', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.moveBeforeAfterWindow, totalHistory)}</select>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <label style="font-size:10.5px;color:var(--txt-faint)">סף שינוי (%)</label>
-        <input type="number" min="5" max="100" value="${isn.moveThreshold}" onchange="changeInsightsParam('moveThreshold', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px;width:70px;direction:ltr">
+    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;font-size:11.5px;color:var(--txt-faint)">
+      ${dd('moveDetectionMonthsBack', isn.moveDetectionMonthsBack, totalHistory, 'חפש אחורה')}
+      ${dd('moveBeforeAfterWindow', isn.moveBeforeAfterWindow, totalHistory, 'חלון לפני/אחרי')}
+      <div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--txt-faint)">
+        <span>סף שינוי:</span>
+        <input type="number" min="5" max="100" value="${isn.moveThreshold}" onchange="changeInsightsParam('moveThreshold', this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:5px;padding:2px 6px;font-size:11px;width:55px;direction:ltr">
+        <span>%</span>
       </div>
     </div>
     ${movesHtml}
   </div>
 
-  <!-- חלק 2: תובנות על המצב הנוכחי -->
+  <!-- חלק 2: ניתוח המצב הנוכחי -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-h">
       <h3>💡 ניתוח המצב הנוכחי</h3>
-      <span class="sub">חוזקות וחולשות ביחס להיסטוריה</span>
+      <span class="sub">איך אתה עומד היום ביחס לעבר</span>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px;background:var(--bg-1);border-radius:8px">
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <label style="font-size:10.5px;color:var(--txt-faint)">השווה לממוצע</label>
-        <select onchange="changeInsightsParam('insightsCompareWindow', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.insightsCompareWindow, totalHistory)}</select>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <label style="font-size:10.5px;color:var(--txt-faint)">חלון לזיהוי מגמות</label>
-        <select onchange="changeInsightsParam('insightsTrendWindow', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.insightsTrendWindow, totalHistory)}</select>
-      </div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+      ${dd('insightsCompareWindow', isn.insightsCompareWindow, totalHistory, 'השווה ל-')}
+      ${dd('insightsTrendWindow', isn.insightsTrendWindow, totalHistory, 'מגמה ב-')}
     </div>
     <div class="split">
       <div>
-        <h4 style="margin:0 0 10px 0;font-size:13px;color:var(--accent)">✓ חוזקות</h4>
-        ${insights.strengths.length === 0 ? '<div class="hint" style="font-size:12px">לא זוהו חוזקות בולטות</div>' : insights.strengths.map(s => insightCard(s, true)).join('')}
+        <h4 style="margin:0 0 8px 0;font-size:13px;color:var(--accent)">חוזקות</h4>
+        ${insights.strengths.length === 0 ? '<div class="hint" style="font-size:12px;padding:8px 0">אין חוזקות בולטות</div>' : insights.strengths.map(s => insightLine(s, true)).join('')}
       </div>
       <div>
-        <h4 style="margin:0 0 10px 0;font-size:13px;color:var(--red)">⚠ חולשות</h4>
-        ${insights.weaknesses.length === 0 ? '<div class="hint" style="font-size:12px">לא זוהו חולשות בולטות</div>' : insights.weaknesses.map(w => insightCard(w, false)).join('')}
+        <h4 style="margin:0 0 8px 0;font-size:13px;color:var(--red)">חולשות</h4>
+        ${insights.weaknesses.length === 0 ? '<div class="hint" style="font-size:12px;padding:8px 0">אין חולשות בולטות</div>' : insights.weaknesses.map(w => insightLine(w, false)).join('')}
       </div>
     </div>
   </div>
@@ -3130,19 +3098,13 @@ function renderInsights(){
   <div class="card">
     <div class="card-h">
       <h3>💎 המלצות למהלכים</h3>
-      <span class="sub">מהלכים שיכולים לשפר את הרווח, מסודרים לפי השפעה</span>
+      <span class="sub">מסודרים לפי השפעה צפויה על הרווח</span>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px;background:var(--bg-1);border-radius:8px">
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <label style="font-size:10.5px;color:var(--txt-faint)">צפי קדימה</label>
-        <select onchange="changeInsightsParam('recoForwardMonths', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.recoForwardMonths, 12)}</select>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <label style="font-size:10.5px;color:var(--txt-faint)">ממוצע על סמך</label>
-        <select onchange="changeInsightsParam('recoAvgWindow', this.value)" style="background:var(--bg-2);color:var(--txt);border:1px solid var(--line-soft);border-radius:6px;padding:4px 8px;font-size:12px">${monthOpts(isn.recoAvgWindow, totalHistory)}</select>
-      </div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+      ${dd('recoForwardMonths', isn.recoForwardMonths, 12, 'צפי קדימה')}
+      ${dd('recoAvgWindow', isn.recoAvgWindow, totalHistory, 'ממוצע על')}
     </div>
-    ${recoCards || '<div class="hint" style="padding:14px;text-align:center">אין המלצות חדשות כרגע — המצב שלך טוב.</div>'}
+    ${recoCards || '<div class="hint" style="padding:14px;text-align:center">אין המלצות כרגע</div>'}
   </div>`;
 }
 
