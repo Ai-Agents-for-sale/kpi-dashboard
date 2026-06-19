@@ -655,14 +655,19 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1){
       activeRetainersAfterChurn: totalActiveRetainers,
       activeRetainersProcFee: procFeeBase,
       activeRetainersNet: baseNet,
+      // פירוט שתי השכבות של הבסיס הפעיל
+      payingOriginal, payingNewExisting,
+      retainerFromBase, retainerFromAccumulated,
+      originalBaseStart: originalBase,
+      newAccumulatedStart: newAccumulated,
       newSetupRevenue, newSetupSalesComm, newSetupAcqCost, newSetupProcFee, newSetupNet,
       newRetainerRevenue, newRetainerOnbComm, newRetainerProcFee, newRetainerNet,
       fixedCosts,
       operating,
       // נתונים על הבסיס בסוף החודש
-      activeOriginalAfter: originalBase,
-      activeNewAfter: newAccumulated,
-      totalActiveAfter: originalBase + newAccumulated,
+      activeOriginalAfter: originalBase - leavingOriginal,
+      activeNewAfter: newAccumulated - leavingNew + avgNewJoined,
+      totalActiveAfter: (originalBase - leavingOriginal) + (newAccumulated - leavingNew + avgNewJoined),
     };
   }
   return lastMonthResult;
@@ -3114,18 +3119,25 @@ function renderInsights(){
       const setupNow = state.setupFee;
       const commPctNow = c.commPct;
 
-      // נתונים מהמאנדיי - לפני ואחרי המהלך
+      // === נתונים מהמאנדיי ===
+      // "אחרי" = החודש הספציפי שבו המהלך קרה (הערך בפועל, לא ממוצע מטושטש)
+      // "לפני" = ממוצע החודשים שלפני המהלך (שם זה יציב)
+      const allMonthsList = [];
+      if(state.mondayRaw && state.mondayRaw.current) allMonthsList.push(state.mondayRaw.current);
+      if(state.mondayRaw && state.mondayRaw.history) state.mondayRaw.history.forEach(m=>allMonthsList.push(m));
+      const moveMonth = allMonthsList[mv.monthIndex] || {};
+
+      // הסגירות והתקציב של החודש שבו המהלך קרה - בפועל
+      const realClosesAfter = moveMonth.closes != null ? moveMonth.closes : (impactData ? impactData.metrics.closes.after : 0);
+      const budgetAfter = moveMonth.budget != null ? moveMonth.budget : 0;
+      // לפני = ממוצע החודשים שלפני המהלך
       const realClosesBefore = impactData ? impactData.metrics.closes.before : 0;
-      const realClosesAfter = impactData ? impactData.metrics.closes.after : 0;
-      // תקציב שיווק לפני ואחרי (מהמאנדיי)
-      const avgBudget = (arr) => {
+      const avgBudgetBefore = () => {
         if(!impactData) return 0;
-        const months = arr === 'before' ? impactData.before : impactData.after;
-        const vals = months.map(m=>m.budget).filter(v=>v!=null && !isNaN(v));
+        const vals = impactData.before.map(m=>m.budget).filter(v=>v!=null && !isNaN(v));
         return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
       };
-      const budgetBefore = avgBudget('before');
-      const budgetAfter = avgBudget('after');
+      const budgetBefore = avgBudgetBefore();
 
       // ערכי בסיס - לשני התרחישים זהים, רק הפרמטר שהשתנה שונה
       let oldSetup = setupNow, newSetup = setupNow;
@@ -3151,8 +3163,7 @@ function renderInsights(){
       const isSetupMove = (mv.param.key === 'setupAvg');
       let cacBefore = (budgetBefore > 0 && realClosesBefore > 0) ? budgetBefore/realClosesBefore : c.acqCost;
       let cacAfter = (budgetAfter > 0 && realClosesAfter > 0) ? budgetAfter/realClosesAfter : c.acqCost;
-      // אם אין נתוני תקציב, ניפול לאחור על מספר הסגירות בפועל
-      const useCac = isSetupMove && cacBefore > 0 && cacAfter > 0;
+      const useCac = isSetupMove && cacBefore > 0 && cacAfter > 0 && budgetBefore > 0 && budgetAfter > 0;
 
       // תקציב שיווק קבוע להשוואה הוגנת (הנוכחי)
       const fixedBudget = state.actBudget || budgetAfter || budgetBefore || 0;
@@ -3162,7 +3173,7 @@ function renderInsights(){
         oldClosesPerMonth = fixedBudget / cacBefore;
         newClosesPerMonth = fixedBudget / cacAfter;
       } else {
-        // ברירת מחדל - הסגירות האמיתיות
+        // ברירת מחדל - הסגירות האמיתיות (לפני = ממוצע, אחרי = החודש בפועל)
         oldClosesPerMonth = realClosesBefore;
         newClosesPerMonth = realClosesAfter;
       }
@@ -4664,15 +4675,23 @@ ${state.activeClients} פעילים × ${money(state.retainer)}₪ ריטיינ�
   nextMonthProfit:{t:'רווח צפוי לחודש הבא',
     body:()=>{
       const n = state.nextMonthMonthsBack||3;
+      const ahead = Math.max(2, parseInt(state.nextMonthAheadCustom)||3);
       const r1 = profitNextMonth(state, n, 1);
-      const r2 = profitNextMonth(state, n, 2);
+      const r2 = profitNextMonth(state, n, ahead);
       const c = compute();
-      const detail = (r, label) => `
+      const detail = (r, label) => {
+        // שכבה 1: הבסיס המקורי (משלם ריטיינר ישן)
+        const baseLayer = `${fmt1(r.payingOriginal)} מהבסיס המקורי × ${money(state.retainer)}₪ = <b>${money(r.retainerFromBase)}₪</b>`;
+        // שכבה 2: לקוחות חדשים שהצטברו (משלמים ריטיינר חדש) - רק אם יש
+        const accLayer = r.retainerFromAccumulated > 0
+          ? `<br>+ ${fmt1(r.payingNewExisting)} לקוחות חדשים שהצטברו × ${money(c.retainerForNew)}₪ = <b>${money(r.retainerFromAccumulated)}₪</b>`
+          : '';
+        return `
 <b style="color:var(--accent)">━━━ ${label} ━━━</b><br><br>
 <b>1. בסיס: ריטיינרים פעילים</b><br>
-${state.activeClients} פעילים × ${money(state.retainer)}₪ ריטיינר = <b>${money(r.activeRetainersGross)}₪</b><br>
-× שחיקה (${fmt1((1-r.churnFactor)*100)}%) = <b>${money(r.activeRetainersAfterChurn)}₪</b><br>
-− סליקה (${fmt1(c.procPct*100)}%) = <b>${money(r.activeRetainersProcFee)}₪</b><br>
+${baseLayer}${accLayer}<br>
+= ${money(r.activeRetainersAfterChurn)}₪ אחרי שחיקה (${fmt1((1-r.churnFactor)*100)}%)<br>
+− סליקה (${fmt1(c.procPct*100)}%): ${money(r.activeRetainersProcFee)}₪<br>
 <b>= ${money(r.activeRetainersNet)}₪</b> נקי מבסיס<br><br>
 <b>2. הקמות חדשות צפויות</b> (ממוצע ${n} חודשים)<br>
 ${fmt1(r.avgClosesPerMonth)} לקוחות חדשים × ${money(state.setupFee)}₪ הקמה = <b>${money(r.newSetupRevenue)}₪</b><br>
@@ -4688,9 +4707,11 @@ ${fmt1(r.avgNewJoined)} מצטרפים × ${money(c.retainerForNew)}₪ ריטי
 <b>4. הוצאות קבועות</b><br>
 − ${money(r.fixedCosts)}₪<br><br>
 <b style="color:var(--accent);font-size:14px">סך רווח תפעולי: ${money(r.operating)}₪</b>`;
-      return `הערכת הרווח על סמך מגמות מ-${n} חודשים אחרונים.<br><br>${detail(r1,'חודש הבא')}<br><br>${detail(r2,'בעוד חודשיים')}`;
+      };
+      return `הערכת הרווח על סמך מגמות מ-${n} חודשים אחרונים.<br><br>
+<b style="color:var(--txt)">למה הרווח גדל כל חודש?</b> כל חודש מצטרפים לקוחות חדשים שמשלמים ריטיינר חדש (${money(c.retainerForNew)}₪), והם <b>מצטברים</b> לבסיס. הבסיס המקורי כמעט לא משתנה, אבל שכבת הלקוחות החדשים הולכת וגדלה - ולכן הרווח עולה.<br><br>${detail(r1,'חודש הבא')}<br><br>${detail(r2,'בעוד '+ahead+' חודשים')}`;
     },
-    f:'(ריטיינר פעיל × (1−שחיקה) − סליקה) + (סגירות × הקמה − עמלות) + (ריטיינרים חדשים × מחיר − אונב.) − קבועות'},
+    f:'(בסיס מקורי × ריטיינר ישן + מצטברים חדשים × ריטיינר חדש) × (1−שחיקה) − סליקה + הקמות + ריטיינרים חדשים − קבועות'},
   profitPctSummary:{t:'אחוז רווח מהמחזור',
     body:()=>`<b>אחוז רווח תפעולי:</b> רווח תפעולי שכבר נכנס ÷ מחזור החודש.<br>
 <b>אחוז רווח גולמי:</b> רווח גולמי ÷ מחזור החודש.<br><br>
