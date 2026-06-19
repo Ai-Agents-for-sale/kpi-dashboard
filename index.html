@@ -2662,6 +2662,7 @@ const LOCK_INFO={
   revenue:{name:'יעד מחזור',desc:'יעד המחזור נשאר קבוע. השאלה: כמה לקוחות, לידים ותקציב שיווק צריך כדי להגיע לאותו מחזור עם הפרמטרים החדשים, וכמה רווח יישאר?',when:'מתי להשתמש: כשיש יעד מחזור קבוע ורוצים לבדוק כמה "יקר" או "זול" להגיע אליו בתנאים שונים — כמה תקציב ולקוחות יידרשו, וכמה זה ישאיר ברווח.'},
   invest:{name:'מצב השקעה (תקציב חופשי)',desc:'כאן אתה גורר את תקציב השיווק בעצמך, ורואה כמה לידים, לקוחות, מחזור ורווח יוצאים ממנו. כולל בדיקה אם צוות המכירות בכלל יכול לטפל בכמות הלידים החדשה — ואם לא, מה צריך לעשות (יותר שעות או שיחה קצרה יותר).',when:'מתי להשתמש: כששוקלים כמה להשקיע בשיווק ורוצים לראות את התשואה — כמה לקוחות ורווח כל שקל שיווק מביא, והאם הצוות מסוגל לעמוד בעומס הלידים.'},
   profitMoves:{name:'יעד רווח — איזה מהלך הכי משתלם?',desc:'אתה קובע יעד רווח. המערכת מחשבת לבד מה המהלכים האפשריים שיביאו אותך אליו — יותר לידים, אחוז המרה גבוה יותר, מחיר הקמה גבוה יותר, או הפחתה בשחיקה. כל מהלך לחוד, עם דירוג של מה הכי יעיל פר יחידת מאמץ.',when:'מתי להשתמש: כשרוצים לדעת בתכלס איזה מהלך הכי שווה לעשות עכשיו כדי להעלות את הרווח. זה הסימולטור הכי שימושי ליום-יום.'},
+  tradeoff:{name:'סף עלות גיוס — שינוי מחיר',desc:'שוקל לשנות את מחיר הריטיינר או ההקמה? כל שינוי מחיר משפיע על כמה אנשים סוגרים, ולכן על עלות הגיוס. הסימולטור מחשב עד איזו עלות גיוס המהלך עדיין משתלם — לכל אופק זמן.',when:'מתי להשתמש: לפני כל החלטת תמחור. למשל — אם אעלה את הריטיינר, עד כמה מותר לעלות הגיוס שזה עדיין כדאי? ואם אוריד את ההקמה, עד כמה הגיוס צריך לרדת כדי שזה ישתלם?'},
 };
 
 /* ============================================================
@@ -3239,9 +3240,15 @@ function renderInsights(){
           <div style="margin-bottom:16px"><b>3.</b> השוואה בין ישן לחדש = מי שגבוה יותר מנצח</div>
 
           ${useCac ? `<div style="background:rgba(124,143,255,.08);border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;line-height:1.7">
-            <b style="color:var(--txt)">למה לפי תקציב ולא לפי כמות לקוחות?</b><br>
-            כי החודש עוד לא נגמר. הורדת ההקמה גרמה ליותר אנשים לסגור, אז <b>עלות גיוס לקוח ירדה</b> מ-${money(cacBefore)}₪ ל-${money(cacAfter)}₪. מאותו תקציב שיווק (${money(fixedBudget)}₪) מגייסים עכשיו יותר לקוחות.
-          </div>` : ''}
+            <b style="color:var(--txt)">למה לפי עלות גיוס לקוח (CAC)?</b><br>
+            כי החודש עוד לא נגמר, אז אי אפשר להשוות כמות לקוחות. במקום זה משווים <b>כמה עולה לגייס לקוח אחד</b>.<br><br>
+            <b>איך מחושב CAC:</b> תקציב שיווק ÷ כמות לקוחות שנסגרו.<br>
+            • לפני: ${money(budgetBefore)}₪ תקציב ÷ ${fmt1(realClosesBefore)} סגירות = <b>${money(cacBefore)}₪</b> ללקוח<br>
+            • אחרי: ${money(budgetAfter)}₪ תקציב ÷ ${fmt1(realClosesAfter)} סגירות = <b>${money(cacAfter)}₪</b> ללקוח<br><br>
+            ואז: מאותו תקציב שיווק (${money(fixedBudget)}₪) רואים כמה לקוחות מגייסים לפי ה-CAC של כל תקופה.
+          </div>` : `<div style="background:rgba(247,184,1,.08);border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;line-height:1.7">
+            <b style="color:var(--txt)">מבוסס על כמות הסגירות בפועל</b> (אין מספיק נתוני תקציב שיווק לחישוב עלות גיוס). לפני = ממוצע החודשים שלפני המהלך, אחרי = החודש שבו המהלך קרה.
+          </div>`}
 
           <hr style="border:none;border-top:1px solid var(--line-soft);margin:16px 0">
 
@@ -3253,7 +3260,7 @@ function renderInsights(){
             <div>+ (${money(retainerNetOld)}₪ ריטיינר נטו × ${fmt1(avgMonths)} חודשים) = <b style="color:var(--txt)">${money(retainerNetOld*avgMonths)}₪</b> מריטיינר</div>
             <div>= <b style="color:var(--txt)">${money(ltvOld)}₪ רווח כולל מלקוח</b></div>
             ${useCac
-              ? `<div style="margin-top:4px">עלות גיוס לקוח: ${money(cacBefore)}₪ → מתקציב ${money(fixedBudget)}₪ מגייסים <b style="color:var(--txt)">${fmt1(oldClosesPerMonth)} לקוחות</b></div>`
+              ? `<div style="margin-top:4px">עלות גיוס לקוח ${money(cacBefore)}₪ → מתקציב ${money(fixedBudget)}₪ מגייסים <b style="color:var(--txt)">${fmt1(oldClosesPerMonth)} לקוחות</b></div>`
               : `<div style="margin-top:4px"><b style="color:var(--txt)">${fmt1(oldClosesPerMonth)} לקוחות</b> בחודש</div>`}
             <div>${money(ltvOld)}₪ × ${fmt1(oldClosesPerMonth)} = <b style="color:var(--accent);font-size:16px">${money(monthlyOld)}₪</b></div>
           </div>
@@ -3264,7 +3271,7 @@ function renderInsights(){
             <div>+ (${money(retainerNetNew)}₪ ריטיינר נטו × ${fmt1(avgMonths)} חודשים) = <b style="color:var(--txt)">${money(retainerNetNew*avgMonths)}₪</b> מריטיינר</div>
             <div>= <b style="color:var(--txt)">${money(ltvNew)}₪ רווח כולל מלקוח</b></div>
             ${useCac
-              ? `<div style="margin-top:4px">עלות גיוס לקוח: ${money(cacAfter)}₪ → מתקציב ${money(fixedBudget)}₪ מגייסים <b style="color:var(--txt)">${fmt1(newClosesPerMonth)} לקוחות</b></div>`
+              ? `<div style="margin-top:4px">עלות גיוס לקוח ${money(cacAfter)}₪ → מתקציב ${money(fixedBudget)}₪ מגייסים <b style="color:var(--txt)">${fmt1(newClosesPerMonth)} לקוחות</b></div>`
               : `<div style="margin-top:4px"><b style="color:var(--txt)">${fmt1(newClosesPerMonth)} לקוחות</b> בחודש</div>`}
             <div>${money(ltvNew)}₪ × ${fmt1(newClosesPerMonth)} = <b style="color:var(--accent);font-size:16px">${money(monthlyNew)}₪</b></div>
           </div>
@@ -3500,6 +3507,302 @@ function changeInsightsParam(key, val){
 }
 
 
+/* ============================================================
+   סימולטור סף עלות גיוס (טרייד-אוף)
+   2 מצבים: שינוי ריטיינר / שינוי הקמה
+============================================================ */
+
+/* מצב הסימולטור */
+let tradeoffState = null;
+function ensureTradeoffState(){
+  if(!tradeoffState){
+    const c = compute(state);
+    tradeoffState = {
+      mode: 'retainer',                          // 'retainer' או 'setup'
+      newRetainer: Math.round(c.retainerForNew * 1.15),  // ברירת מחדל +15%
+      newSetup: state.setupFee,                  // ברירת מחדל - אותו מחיר
+      salesCommPct: state.salesCommPct,          // עמלת מכירה (ניתנת לשינוי)
+      includeSetup: true,                        // האם לכלול הקמה בחישוב
+    };
+  }
+}
+
+/* מקדם הצטברות ריטיינר על N חודשים עם שחיקה */
+function retainerCumFactor(N, churnRatePct){
+  const ch = (churnRatePct||0)/100;
+  let sum = 0, surviving = 1;
+  for(let m=0; m<N; m++){ sum += surviving; surviving *= (1-ch); }
+  return sum;
+}
+
+/* רווח לקוח בודד לאורך N חודשים — בלי עלות הגיוס (אותה מחפשים)
+   p = {setupFee, retainer, salesCommPct, onbCommPct, procPct, churnRate}
+   includeSetup = האם לכלול את ההקמה בחישוב */
+function tradeoffBaseProfit(p, N, includeSetup){
+  const salesComm = p.salesCommPct/100;
+  const onbComm = p.onbCommPct/100;
+  const proc = p.procPct/100;
+  // הכנסה חד-פעמית מהקמה (פחות עמלת מכירה, פחות סליקה)
+  const setupNet = includeSetup ? (p.setupFee * (1 - salesComm) * (1 - proc)) : 0;
+  // אונבורדינג - פעם אחת על הריטיינר
+  const onbCost = p.retainer * onbComm;
+  // ריטיינר מצטבר על N חודשים, פחות סליקה, עם שחיקה
+  const retCumFactor = retainerCumFactor(N, p.churnRate);
+  const retainerNet = p.retainer * (1 - proc) * retCumFactor;
+  return setupNet - onbCost + retainerNet;
+}
+
+/* החישוב המרכזי — מחזיר טבלה לכל אופק זמן */
+function computeTradeoff(){
+  ensureTradeoffState();
+  const ts = tradeoffState;
+  const c = compute(state);
+  // עלות גיוס נוכחית ותקציב
+  const cac0 = c.acqCost;                        // עלות שיווק לגייס לקוח (מהנתונים)
+  // תקציב שיווק: כמה שמוציאים על גיוס לקוחות חדשים בחודש
+  const newClientsPerMonth = state.leads ? state.leads * c.effConv : 22;
+  const budget = cac0 * newClientsPerMonth;       // תקציב שמייצר את הלקוחות הנוכחיים
+
+  // פרמטרים משותפים
+  const common = {
+    salesCommPct: ts.salesCommPct,
+    onbCommPct: state.onboardCommPct || 0,
+    procPct: state.processingFeePct || 0,
+    churnRate: state.churnRate || 0,
+  };
+
+  // הגדרת תרחיש ישן וחדש לפי המצב
+  let oldP, newP;
+  if(ts.mode === 'retainer'){
+    oldP = { ...common, setupFee: state.setupFee, retainer: c.retainerForNew };
+    newP = { ...common, setupFee: state.setupFee, retainer: ts.newRetainer };
+  } else {
+    oldP = { ...common, setupFee: state.setupFee, retainer: c.retainerForNew };
+    newP = { ...common, setupFee: ts.newSetup, retainer: c.retainerForNew };
+  }
+
+  const horizons = [1, 2, 3, 6, 12];
+  const rows = horizons.map(N => {
+    const baseOld = tradeoffBaseProfit(oldP, N, ts.includeSetup);
+    const baseNew = tradeoffBaseProfit(newP, N, ts.includeSetup);
+    // עלות גיוס סף: cac_new = cac0 * baseNew/baseOld
+    const cacThreshold = baseOld !== 0 ? cac0 * (baseNew / baseOld) : 0;
+    // תוספת רווח אם נשתמש בעלות הגיוס הנוכחית (cac0)
+    const clientsOld = budget / cac0;
+    const profitOld = clientsOld * (baseOld - cac0);
+    const profitNew = clientsOld * (baseNew - cac0);
+    const profitDelta = profitNew - profitOld;
+    return { N, baseOld, baseNew, cac0, cacThreshold, profitDelta, clientsOld, budget,
+             oldP, newP, includeSetup: ts.includeSetup };
+  });
+
+  return { rows, cac0, budget, newClientsPerMonth, mode: ts.mode, oldP, newP };
+}
+
+function renderTradeoffSimulator(){
+  ensureTradeoffState();
+  const ts = tradeoffState;
+  const c = compute(state);
+  const currentRetainer = Math.round(c.retainerForNew);
+  const currentSetup = state.setupFee;
+
+  // כפתורי מצב (ריטיינר / הקמה)
+  const modeBtns = `
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="rep-pill ${ts.mode==='retainer'?'active':''}" onclick="setTradeoffMode('retainer')">שינוי מחיר ריטיינר</div>
+      <div class="rep-pill ${ts.mode==='setup'?'active':''}" onclick="setTradeoffMode('setup')">שינוי מחיר הקמה</div>
+    </div>`;
+
+  // סליידרים לפי מצב
+  let controls = '';
+  if(ts.mode === 'retainer'){
+    controls = `
+      <div class="slider-row"><div class="sr-h"><label>מחיר ריטיינר חדש</label>
+        <b>${fmt(ts.newRetainer)} <span style="font-size:12px;color:var(--txt-dim)">₪</span></b></div>
+        <input type="range" min="${Math.max(50,Math.round(currentRetainer*0.5))}" max="${Math.round(currentRetainer*2.5)}" step="10" value="${ts.newRetainer}" oninput="onTradeoffSlider('newRetainer', this.value)"></div>
+      <div class="hint" style="margin-top:4px">מחיר נוכחי: ${money(currentRetainer)}₪ ${ts.newRetainer>currentRetainer?'· העלאה של '+fmt1((ts.newRetainer/currentRetainer-1)*100)+'%':ts.newRetainer<currentRetainer?'· הורדה של '+fmt1((1-ts.newRetainer/currentRetainer)*100)+'%':''}</div>`;
+  } else {
+    controls = `
+      <div class="slider-row"><div class="sr-h"><label>מחיר הקמה חדש</label>
+        <b>${fmt(ts.newSetup)} <span style="font-size:12px;color:var(--txt-dim)">₪</span></b></div>
+        <input type="range" min="0" max="${Math.round(currentSetup*2.5)}" step="25" value="${ts.newSetup}" oninput="onTradeoffSlider('newSetup', this.value)"></div>
+      <div class="hint" style="margin-top:4px;margin-bottom:14px">מחיר נוכחי: ${money(currentSetup)}₪ ${ts.newSetup>currentSetup?'· העלאה של '+fmt1((ts.newSetup/currentSetup-1)*100)+'%':ts.newSetup<currentSetup?'· הורדה של '+fmt1((1-ts.newSetup/currentSetup)*100)+'%':''}</div>
+      <div class="slider-row"><div class="sr-h"><label>עמלת מכירה</label>
+        <b>${fmt1(ts.salesCommPct)} <span style="font-size:12px;color:var(--txt-dim)">%</span></b></div>
+        <input type="range" min="0" max="90" step="0.5" value="${ts.salesCommPct}" oninput="onTradeoffSlider('salesCommPct', this.value)"></div>
+      <div class="hint" style="margin-top:4px">עמלת המכירה חלה על ההקמה. אפשר לשנות אותה יחד עם ההקמה או להשאיר קבועה.</div>`;
+  }
+
+  // כפתור כלול/בטל הקמה
+  const setupToggle = `
+    <div style="display:flex;align-items:center;gap:10px;margin-top:16px;padding:12px;background:var(--bg-1);border-radius:8px">
+      <div onclick="toggleTradeoffSetup()" style="cursor:pointer;width:44px;height:24px;border-radius:12px;background:${ts.includeSetup?'var(--accent)':'var(--line-soft)'};position:relative;transition:.2s">
+        <div style="position:absolute;top:2px;${ts.includeSetup?'left:2px':'right:2px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s"></div>
+      </div>
+      <div style="font-size:13px">
+        <b>${ts.includeSetup?'כולל את ההקמה בחישוב':'מתעלם מההקמה (רק ריטיינר)'}</b>
+        <div style="color:var(--txt-faint);font-size:11.5px;margin-top:2px">${ts.includeSetup?'הרווח מכל לקוח כולל את ההקמה החד-פעמית — תמונה מלאה.':'בודק רק את השפעת הריטיינר — מתעלם מההכנסה מההקמה.'}</div>
+      </div>
+    </div>`;
+
+  // החישוב
+  const result = computeTradeoff();
+  const isReduction = ts.mode==='setup' && ts.newSetup < currentSetup;
+  const colHeader = isReduction ? 'משתלם רק אם עלות הגיוס יורדת מתחת ל-' : 'משתלם עד עלות גיוס של';
+
+  // שורות הטבלה
+  const horizonLabels = {1:'חודש 1', 2:'חודשיים', 3:'3 חודשים', 6:'6 חודשים', 12:'12 חודשים'};
+  window._tradeoffRows = {};
+  const tableRows = result.rows.map((r,i) => {
+    window._tradeoffRows[`_to_${r.N}`] = r;
+    const cacColor = r.cacThreshold >= r.cac0 ? 'var(--accent)' : 'var(--red)';
+    const deltaColor = r.profitDelta >= 0 ? 'var(--accent)' : 'var(--red)';
+    return `<tr style="border-bottom:1px solid var(--line-soft)">
+      <td style="padding:13px 8px;font-size:13.5px;color:var(--txt)">${horizonLabels[r.N]}</td>
+      <td style="padding:13px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:16px;color:${cacColor};direction:ltr">${money(r.cacThreshold)}₪</td>
+      <td style="padding:13px 8px;text-align:center;font-family:'Rubik';font-weight:700;font-size:15px;color:${deltaColor};direction:ltr">${r.profitDelta>=0?'+':''}${money(r.profitDelta)}₪</td>
+      <td style="padding:13px 8px;text-align:center"><span onclick="showTradeoffWhy('_to_${r.N}')" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--bg-1);border:1px solid var(--line-soft);font-size:13px;color:var(--accent)">?</span></td>
+    </tr>`;
+  }).join('');
+
+  // משפט הסבר על מצב נוכחי
+  const moveDesc = ts.mode==='retainer'
+    ? `אתה שוקל ${ts.newRetainer>currentRetainer?'להעלות':'להוריד'} את הריטיינר מ-${money(currentRetainer)}₪ ל-${money(ts.newRetainer)}₪.`
+    : `אתה שוקל ${ts.newSetup>currentSetup?'להעלות':'להוריד'} את ההקמה מ-${money(currentSetup)}₪ ל-${money(ts.newSetup)}₪.`;
+
+  return `
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>למה הסימולטור הזה?</h3></div>
+    <div style="font-size:13.5px;line-height:1.8;color:var(--txt-dim)">
+      ${ts.mode==='retainer'
+        ? `כשאתה <b style="color:var(--txt)">מעלה את מחיר הריטיינר</b>, כל לקוח מכניס יותר כסף — אבל המחיר היקר עלול להקשות על המכירה ולהעלות את <b style="color:var(--txt)">עלות הגיוס</b> (פחות אנשים סוגרים מאותו תקציב). הסימולטור מחשב <b style="color:var(--txt)">עד איזו עלות גיוס המהלך עדיין משתלם</b> — לכל אופק זמן. ככל שתחכה יותר, הריטיינר הגבוה מצטבר ומצדיק עלות גיוס גבוהה יותר.`
+        : `כשאתה משנה את <b style="color:var(--txt)">מחיר ההקמה</b>, זה משפיע על כמה אנשים סוגרים, ולכן על <b style="color:var(--txt)">עלות הגיוס</b>. הורדת מחיר → יותר לקוחות מאותו תקציב, אבל פחות כסף מההקמה. העלאת מחיר → יותר כסף מההקמה, אבל פחות לקוחות. הסימולטור מחשב את <b style="color:var(--txt)">נקודת האיזון</b> — עד איזו עלות גיוס המהלך משתלם.`}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>מה לשנות?</h3></div>
+    ${modeBtns}
+    ${controls}
+    ${setupToggle}
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h3>עד איזו עלות גיוס זה משתלם?</h3></div>
+    <div style="font-size:13.5px;color:var(--txt-dim);margin-bottom:8px">${moveDesc}</div>
+    <div class="hint" style="margin-bottom:14px">עלות הגיוס הנוכחית שלך: <b style="color:var(--txt)">${money(result.cac0)}₪</b> ללקוח · תקציב שיווק חודשי: <b style="color:var(--txt)">${money(result.budget)}₪</b></div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid var(--line-soft)">
+        <th style="text-align:right;padding:10px 8px;font-size:11.5px;color:var(--txt-faint);font-weight:600">אם תחכה</th>
+        <th style="text-align:center;padding:10px 8px;font-size:11.5px;color:var(--accent);font-weight:600">${colHeader}</th>
+        <th style="text-align:center;padding:10px 8px;font-size:11.5px;color:var(--accent);font-weight:600">תוספת רווח</th>
+        <th style="text-align:center;padding:10px 8px;font-size:11.5px;color:var(--txt-faint);font-weight:600">למה</th>
+      </tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    </div>
+    <div class="hint" style="margin-top:12px;line-height:1.6">
+      <b>תוספת רווח</b> = כמה יותר רווח תפעולי תכניס (מצטבר עד אותה נקודה), אם תשאיר את עלות הגיוס הנוכחית.<br>
+      לחץ על <b>?</b> בכל שורה לפירוק מלא של החישוב.
+    </div>
+  </div>`;
+}
+
+function setTradeoffMode(mode){ ensureTradeoffState(); tradeoffState.mode = mode; renderScenarios(); }
+function onTradeoffSlider(key, val){ ensureTradeoffState(); tradeoffState[key] = parseFloat(val); renderScenarios(); }
+function toggleTradeoffSetup(){ ensureTradeoffState(); tradeoffState.includeSetup = !tradeoffState.includeSetup; renderScenarios(); }
+
+/* חלון הסבר מפורט לכל שורה */
+function showTradeoffWhy(key){
+  const r = window._tradeoffRows && window._tradeoffRows[key];
+  if(!r) return;
+  const ts = tradeoffState;
+  const c = compute(state);
+  const N = r.N;
+  const horizonLabel = {1:'חודש אחד', 2:'חודשיים', 3:'שלושה חודשים', 6:'שישה חודשים', 12:'שנים-עשר חודשים'}[N];
+  const salesComm = ts.salesCommPct/100;
+  const onbComm = (state.onboardCommPct||0)/100;
+  const proc = (state.processingFeePct||0)/100;
+  const churn = state.churnRate||0;
+  const retCumF = retainerCumFactor(N, churn);
+
+  const oldRet = r.oldP.retainer, newRet = r.newP.retainer;
+  const oldSetup = r.oldP.setupFee, newSetup = r.newP.setupFee;
+
+  // פירוק baseOld
+  const setupNetOld = r.includeSetup ? oldSetup*(1-salesComm)*(1-proc) : 0;
+  const onbOld = oldRet*onbComm;
+  const retNetOld = oldRet*(1-proc)*retCumF;
+  // פירוק baseNew
+  const setupNetNew = r.includeSetup ? newSetup*(1-salesComm)*(1-proc) : 0;
+  const onbNew = newRet*onbComm;
+  const retNetNew = newRet*(1-proc)*retCumF;
+
+  const modeWord = ts.mode==='retainer' ? 'ריטיינר' : 'הקמה';
+
+  let body = `
+<b style="color:var(--txt);font-size:15px">מה אנחנו מחשבים?</b><br><br>
+אתה רוצה לדעת: אם תעשה את המהלך (שינוי ה${modeWord}), <b>עד איזו עלות גיוס לקוח זה עדיין משתלם</b>, אם תסתכל על אופק של <b>${horizonLabel}</b>.<br><br>
+הרעיון: שינוי המחיר ישפיע על כמה לקוחות תגייס מאותו תקציב שיווק. אנחנו מחפשים את עלות הגיוס שבה הרווח החדש <b>שווה בדיוק</b> לרווח הישן. מעבר לזה — מפסידים.<br><br>
+
+<hr style="border:none;border-top:1px solid var(--line-soft);margin:14px 0">
+
+<b style="color:var(--txt);font-size:15px">שלב 1: רווח מלקוח בודד לאורך ${horizonLabel}</b><br><br>
+${r.includeSetup ? `כל לקוח מביא הכנסה חד-פעמית מההקמה, ועוד ריטיינר שחוזר כל חודש (פוחת בשחיקה ${fmt1(churn)}%).` : `<b>מתעלמים מההקמה</b> (לפי הבחירה שלך) — סופרים רק את הריטיינר שחוזר כל חודש.`}<br><br>
+
+<b>לפני המהלך (${modeWord} ${money(ts.mode==='retainer'?oldRet:oldSetup)}₪):</b><br>`;
+
+  if(r.includeSetup){
+    body += `הקמה נטו: ${money(oldSetup)}₪ × (1−${fmt1(salesComm*100)}% עמלה) × (1−${fmt1(proc*100)}% סליקה) = <b>${money(setupNetOld)}₪</b><br>`;
+  }
+  body += `אונבורדינג (פעם אחת): ${money(oldRet)}₪ × ${fmt1(onbComm*100)}% = <b>−${money(onbOld)}₪</b><br>
+ריטיינר מצטבר ל-${N} חודשים: ${money(oldRet)}₪ × (1−${fmt1(proc*100)}% סליקה) × ${fmt1(retCumF)} (מקדם שחיקה) = <b>${money(retNetOld)}₪</b><br>
+<b style="color:var(--txt)">= ${money(r.baseOld)}₪ רווח כולל מלקוח</b><br><br>
+
+<b>אחרי המהלך (${modeWord} ${money(ts.mode==='retainer'?newRet:newSetup)}₪):</b><br>`;
+  if(r.includeSetup){
+    body += `הקמה נטו: ${money(newSetup)}₪ × (1−${fmt1(salesComm*100)}% עמלה) × (1−${fmt1(proc*100)}% סליקה) = <b>${money(setupNetNew)}₪</b><br>`;
+  }
+  body += `אונבורדינג (פעם אחת): ${money(newRet)}₪ × ${fmt1(onbComm*100)}% = <b>−${money(onbNew)}₪</b><br>
+ריטיינר מצטבר ל-${N} חודשים: ${money(newRet)}₪ × (1−${fmt1(proc*100)}% סליקה) × ${fmt1(retCumF)} = <b>${money(retNetNew)}₪</b><br>
+<b style="color:var(--txt)">= ${money(r.baseNew)}₪ רווח כולל מלקוח</b><br><br>
+
+<hr style="border:none;border-top:1px solid var(--line-soft);margin:14px 0">
+
+<b style="color:var(--txt);font-size:15px">שלב 2: מקדם השחיקה (${fmt1(retCumF)})</b><br><br>
+למה ${fmt1(retCumF)} ולא ${N}? כי לקוחות עוזבים בקצב ${fmt1(churn)}% לחודש. אז הריטיינר לא נכנס ${N} פעמים מלאות:<br>
+חודש 1: 100% מהלקוחות · חודש 2: ${fmt1(100*(1-churn/100))}% · וכן הלאה. הסכום של כולם = <b>${fmt1(retCumF)}</b>.<br><br>
+
+<hr style="border:none;border-top:1px solid var(--line-soft);margin:14px 0">
+
+<b style="color:var(--txt);font-size:15px">שלב 3: עלות הגיוס המקסימלית (${money(r.cacThreshold)}₪)</b><br><br>
+זה החלק המרכזי. הנוסחה:<br><br>
+<div style="background:var(--bg-2);padding:10px;border-radius:6px;font-family:'Rubik';direction:ltr;text-align:left;font-size:13px">
+עלות גיוס מקס׳ = עלות נוכחית × (רווח חדש ÷ רווח ישן)<br>
+= ${money(r.cac0)} × (${money(r.baseNew)} ÷ ${money(r.baseOld)})<br>
+= ${money(r.cac0)} × ${fmt1(r.baseNew/r.baseOld * 100)/100 ? (r.baseNew/r.baseOld).toFixed(3) : '1'}<br>
+= <b>${money(r.cacThreshold)}₪</b>
+</div><br>
+<b>למה הנוסחה הזאת?</b> אנחנו רוצים שהרווח הכולל יישאר זהה. אם הרווח מכל לקוח גדל ביחס מסוים, אתה יכול להרשות לעצמך לשלם על הגיוס באותו יחס בדיוק — ולהישאר באותו רווח כולל.<br><br>
+
+${r.cacThreshold >= r.cac0
+  ? `<b style="color:var(--accent)">עלות הגיוס שלך היום (${money(r.cac0)}₪) נמוכה מהסף (${money(r.cacThreshold)}₪) — אז המהלך משתלם, ויש לך מרווח של ${money(r.cacThreshold-r.cac0)}₪.</b>`
+  : `<b style="color:var(--red)">עלות הגיוס שלך היום (${money(r.cac0)}₪) גבוהה מהסף (${money(r.cacThreshold)}₪) — אז המהלך לא משתלם באופק הזה, אלא אם עלות הגיוס תרד.</b>`}<br><br>
+
+<hr style="border:none;border-top:1px solid var(--line-soft);margin:14px 0">
+
+<b style="color:var(--txt);font-size:15px">שלב 4: תוספת הרווח (${r.profitDelta>=0?'+':''}${money(r.profitDelta)}₪)</b><br><br>
+זה כמה יותר רווח תכניס אם תעשה את המהלך <b>ותשאיר את עלות הגיוס הנוכחית</b> (${money(r.cac0)}₪):<br><br>
+מספר לקוחות: ${money(r.budget)}₪ תקציב ÷ ${money(r.cac0)}₪ עלות גיוס = <b>${fmt1(r.clientsOld)} לקוחות</b><br>
+רווח ישן: ${fmt1(r.clientsOld)} × (${money(r.baseOld)} − ${money(r.cac0)}) = <b>${money(r.clientsOld*(r.baseOld-r.cac0))}₪</b><br>
+רווח חדש: ${fmt1(r.clientsOld)} × (${money(r.baseNew)} − ${money(r.cac0)}) = <b>${money(r.clientsOld*(r.baseNew-r.cac0))}₪</b><br>
+<b style="color:${r.profitDelta>=0?'var(--accent)':'var(--red)'}">הפרש = ${r.profitDelta>=0?'+':''}${money(r.profitDelta)}₪</b>`;
+
+  document.getElementById('modalBox').innerHTML=`<h3>${svg('info')} ${horizonLabel} — איך חישבנו</h3><div style="font-size:13.5px;color:var(--txt-dim);line-height:1.8">${body}</div><button onclick="closeModal()">הבנתי</button>`;
+  document.getElementById('modalBg').classList.add('show');
+}
+
 function renderScenarios(){
   if(!simState) simState=structuredClone(state);
   // אתחול תקציב השיווק לפי המצב הנוכחי (פעם ראשונה)
@@ -3509,6 +3812,7 @@ function renderScenarios(){
   }
   const isInvest = simLock==='invest';
   const isProfit = simLock==='profitMoves';
+  const isTradeoff = simLock==='tradeoff';
   // אתחול יעד הרווח לסימולציה (לפי היעד הנוכחי) אם זה המצב
   if(isProfit && simState.simProfitGoal==null) simState.simProfitGoal=state.goalProfit;
   document.getElementById('content').innerHTML=`
@@ -3524,7 +3828,7 @@ function renderScenarios(){
     <div class="notice" style="margin-bottom:0"><div style="display:flex;gap:11px;align-items:flex-start">${svg('info')}<div><b>נעול על: ${LOCK_INFO[simLock].name}.</b> ${LOCK_INFO[simLock].desc}<div style="margin-top:8px;color:var(--accent);font-weight:500">${LOCK_INFO[simLock].when}</div></div></div></div>
   </div>
 
-  ${isProfit ? `
+  ${isTradeoff ? renderTradeoffSimulator() : isProfit ? `
     <div class="card" style="margin-bottom:16px">
       <div class="card-h"><h3>יעד הרווח שלך</h3><button class="btn btn-ghost btn-sm" onclick="resetSim()">איפוס</button></div>
       ${slider('simProfitGoal','יעד רווח תפעולי חודשי',5000,200000,1000,'₪')}
