@@ -620,7 +620,10 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
   const setupFeeEff = (ov && ov.setupFee!=null)       ? ov.setupFee       : s.setupFee;
   const acqCostEff  = (ov && ov.acqCost!=null)        ? ov.acqCost        : c.acqCost;
   const churnRate = (s.churnRate||0)/100;  // אחוז שחיקה חודשי (קבוע)
-  const fixedCosts = s.fixedCosts || 0;
+  const fixedCostsBase = (ov && ov.fixedCosts!=null) ? ov.fixedCosts : (s.fixedCosts || 0);
+  // === דריפט: שינוי חודשי באחוזים לכל פרמטר (תחזית אופטימית/פסימית) ===
+  const drift = (ov && ov.drift) || {};
+  const grow = (base, key, m) => base * Math.pow(1 + (drift[key]||0)/100, m-1);
 
   // === סימולציה חודש-אחר-חודש ===
   // הבסיס המקורי משלם s.retainer הישן, חדשים שגויסו משלמים c.retainerForNew החדש
@@ -629,6 +632,13 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
   let lastMonthResult = null;
 
   for(let m = 1; m <= monthsAhead; m++){
+    // === ערכי הפרמטרים לחודש הזה אחרי דריפט (m=1 = ערך הבסיס) ===
+    const closesM  = grow(avgClosesPerMonth, 'avgCloses', m);
+    const joinedM  = grow(avgNewJoined,      'avgJoined', m);
+    const retNewM  = grow(retForNew,         'retainerForNew', m);
+    const setupM   = grow(setupFeeEff,       'setupFee', m);
+    const acqM     = grow(acqCostEff,        'acqCost', m);
+    const fixedM   = grow(fixedCostsBase,    'fixedCosts', m);
     // שחיקה - מתפזרת לחצי החודש (חצי משלמים, חצי לא)
     const leavingOriginal = originalBase * churnRate;
     const leavingNew = newAccumulated * churnRate;
@@ -636,29 +646,29 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
     const payingNewExisting = newAccumulated - leavingNew/2;
     // הכנסה מריטיינרים פעילים
     const retainerFromBase = payingOriginal * (s.retainer||0);
-    const retainerFromAccumulated = payingNewExisting * retForNew;
+    const retainerFromAccumulated = payingNewExisting * retNewM;
     const totalActiveRetainers = retainerFromBase + retainerFromAccumulated;
     const procFeeBase = totalActiveRetainers * c.procPct;
     const baseNet = totalActiveRetainers - procFeeBase;
     // הקמות חדשות
-    const newSetupRevenue = avgClosesPerMonth * setupFeeEff;
+    const newSetupRevenue = closesM * setupM;
     const newSetupSalesComm = newSetupRevenue * c.commPct;
-    const newSetupAcqCost = avgClosesPerMonth * acqCostEff;
+    const newSetupAcqCost = closesM * acqM;
     const newSetupProcFee = newSetupRevenue * c.procPct;
     const newSetupNet = newSetupRevenue - newSetupSalesComm - newSetupAcqCost - newSetupProcFee;
     // ריטיינרים חדשים (שהצטרפו החודש)
-    const newRetainerRevenue = avgNewJoined * retForNew;
+    const newRetainerRevenue = joinedM * retNewM;
     const newRetainerOnbComm = newRetainerRevenue * c.onbCommPct;
     const newRetainerProcFee = newRetainerRevenue * c.procPct;
     const newRetainerNet = newRetainerRevenue - newRetainerOnbComm - newRetainerProcFee;
-    const operating = baseNet + newSetupNet + newRetainerNet - fixedCosts;
+    const operating = baseNet + newSetupNet + newRetainerNet - fixedM;
     // עדכון הבסיס לחודש הבא
     originalBase = originalBase - leavingOriginal;
-    newAccumulated = newAccumulated - leavingNew + avgNewJoined;
+    newAccumulated = newAccumulated - leavingNew + joinedM;
     lastMonthResult = {
       monthsAhead: m, monthsBack,
-      avgClosesPerMonth, avgNewJoined,
-      activeRetainersGross: totalActiveRetainers + (leavingOriginal/2)*s.retainer + (leavingNew/2)*retForNew,
+      avgClosesPerMonth: closesM, avgNewJoined: joinedM,
+      activeRetainersGross: totalActiveRetainers + (leavingOriginal/2)*s.retainer + (leavingNew/2)*retNewM,
       churnFactor: 1 - churnRate/2,
       activeRetainersAfterChurn: totalActiveRetainers,
       activeRetainersProcFee: procFeeBase,
@@ -670,7 +680,10 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
       newAccumulatedStart: newAccumulated,
       newSetupRevenue, newSetupSalesComm, newSetupAcqCost, newSetupProcFee, newSetupNet,
       newRetainerRevenue, newRetainerOnbComm, newRetainerProcFee, newRetainerNet,
-      fixedCosts,
+      fixedCosts: fixedM,
+      // === ערכי הפרמטרים בפועל לחודש הזה (לעמודות הדריפט) ===
+      acqCostUsed: acqM, setupFeeUsed: setupM, retNewUsed: retNewM,
+      closesUsed: closesM, joinedUsed: joinedM, fixedCostsUsed: fixedM,
       operating,
       // נתונים על הבסיס בסוף החודש (originalBase/newAccumulated כבר עודכנו למעלה)
       activeOriginalAfter: originalBase,
@@ -1512,8 +1525,9 @@ function renderMonthSummary(){
 
 function changeNextMonthMonthsBack(val){
   state.nextMonthMonthsBack = Math.max(1, parseInt(val)||3);
-  // שינוי הממוצע מאפס את דריסות הסימולציה — הקוביות חוזרות לערך הממוצע החדש
-  forecastSim = { avgCloses:null, avgJoined:null, acqCost:null, setupFee:null, retainerForNew:null };
+  // שינוי הממוצע מאפס רק את דריסות הערכים — המצב והדריפט נשמרים
+  forecastSim.avgCloses=null; forecastSim.avgJoined=null; forecastSim.acqCost=null;
+  forecastSim.setupFee=null; forecastSim.retainerForNew=null; forecastSim.fixedCosts=null;
   saveState();
   navigate(currentPage);
 }
@@ -1525,10 +1539,32 @@ function changeNextMonthAhead(val){
 }
 
 /* ============================================================
-   סימולציה חיה לטבלת התחזית — 5 ערכים שניתן לדרוס ידנית.
-   null = השתמש בממוצע המוגדר. מספר = override ידני.
+   סימולציה חיה לטבלת התחזית.
+   ערכי בסיס (קוביות): null = ממוצע מוגדר, מספר = override ידני.
+   mode: realistic / optimistic / pessimistic.
+   drift: % שינוי חודשי לכל פרמטר (פעיל רק במצב לא-ראלי).
 ============================================================ */
-let forecastSim = { avgCloses:null, avgJoined:null, acqCost:null, setupFee:null, retainerForNew:null };
+let forecastSim = {
+  mode: 'realistic',
+  avgCloses:null, avgJoined:null, acqCost:null, setupFee:null, retainerForNew:null, fixedCosts:null,
+  drift: { avgCloses:0, avgJoined:0, acqCost:0, setupFee:0, retainerForNew:0, fixedCosts:0 },
+};
+
+/* מטא-דאטה לכל פרמטר שניתן לדריפט (סדר העמודות והקוביות) */
+const DRIFT_PARAMS = [
+  {key:'avgJoined',      label:'מצטרפים לריטיינר', short:'מצטרפים',    affix:'',  resKey:'joinedUsed',     money:false},
+  {key:'avgCloses',      label:'לקוחות שסוגרים',   short:'סגירות',     affix:'',  resKey:'closesUsed',     money:false},
+  {key:'acqCost',        label:'עלות גיוס לקוח',   short:'עלות גיוס',  affix:'₪', resKey:'acqCostUsed',    money:true},
+  {key:'setupFee',       label:'מחיר הקמה',        short:'הקמה',       affix:'₪', resKey:'setupFeeUsed',   money:true},
+  {key:'retainerForNew', label:'ריטיינר חדש',      short:'ריטיינר',    affix:'₪', resKey:'retNewUsed',     money:true},
+  {key:'fixedCosts',     label:'הוצאות קבועות',    short:'קבועות',     affix:'₪', resKey:'fixedCostsUsed', money:true},
+];
+/* פריסטים לדריפט — רק עלות גיוס זזה כברירת מחדל */
+const DRIFT_PRESETS = {
+  realistic:   { avgJoined:0, avgCloses:0, acqCost:0,  setupFee:0, retainerForNew:0, fixedCosts:0 },
+  optimistic:  { avgJoined:0, avgCloses:0, acqCost:-3, setupFee:0, retainerForNew:0, fixedCosts:0 },
+  pessimistic: { avgJoined:0, avgCloses:0, acqCost:5,  setupFee:0, retainerForNew:0, fixedCosts:0 },
+};
 
 /* ערכי ברירת המחדל לפי הממוצע המוגדר (monthsBack) */
 function forecastDefaults(s, monthsBack){
@@ -1540,22 +1576,34 @@ function forecastDefaults(s, monthsBack){
     acqCost: c.acqCost,
     setupFee: s.setupFee,
     retainerForNew: c.retainerForNew,
+    fixedCosts: s.fixedCosts || 0,
   };
 }
-/* הערכים בפועל (override אם קיים, אחרת ברירת מחדל) — להעברה ל-profitNextMonth */
+/* הדריפט הפעיל בפועל (רק במצב לא-ראלי) */
+function activeDrift(){
+  return forecastSim.mode==='realistic' ? null : forecastSim.drift;
+}
+/* רשימת הפרמטרים שמשתנים בפועל (דריפט ≠ 0) — קובעת אילו עמודות מוצגות */
+function activeDriftCols(){
+  if(forecastSim.mode==='realistic') return [];
+  return DRIFT_PARAMS.filter(p => (forecastSim.drift[p.key]||0) !== 0);
+}
+/* הערכים בפועל (override אם קיים, אחרת ברירת מחדל) + דריפט — להעברה ל-profitNextMonth */
 function forecastEffective(s, monthsBack){
   const d = forecastDefaults(s, monthsBack);
   const pick = k => forecastSim[k]!=null ? forecastSim[k] : d[k];
   return {
     avgCloses: pick('avgCloses'), avgJoined: pick('avgJoined'),
     acqCost: pick('acqCost'), setupFee: pick('setupFee'),
-    retainerForNew: pick('retainerForNew'),
+    retainerForNew: pick('retainerForNew'), fixedCosts: pick('fixedCosts'),
+    drift: activeDrift(),
     _defaults: d,
   };
 }
 
-/* בונה את שורות הטבלה (משמש גם ברינדור ראשוני וגם בעדכון חי) */
+/* בונה את שורות הטבלה (כולל עמודות הדריפט הפעילות) */
 function buildForecastRows(s, monthsBack, eff, expectedThisMonth){
+  const cols = activeDriftCols();
   const rows = [];
   for(let N=1;N<=12;N++) rows.push(profitNextMonth(s, monthsBack, N, eff));
   return rows.map((r,i)=>{
@@ -1564,16 +1612,38 @@ function buildForecastRows(s, monthsBack, eff, expectedThisMonth){
     const growth = prevOp!=null && prevOp!==0 ? ((r.operating-prevOp)/Math.abs(prevOp))*100 : null;
     const aheadLabel = month===1 ? 'בעוד חודש' : `בעוד ${month} חודשים`;
     const realMonth = forecastMonthLabel(month);
+    const driftTds = cols.map(p=>{
+      const v = r[p.resKey];
+      const shown = p.money ? money(v)+'₪' : fmt1(v);
+      return `<td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;color:var(--txt-faint);direction:ltr">${shown}</td>`;
+    }).join('');
     return `<tr style="border-bottom:1px solid var(--line-soft)">
       <td style="padding:11px 10px;font-size:13px;color:var(--txt)">${aheadLabel}<span style="color:var(--txt-faint);font-size:11.5px;margin-right:6px">${realMonth}</span></td>
       <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-weight:700;font-size:15px;color:${r.operating>=0?'var(--accent)':'var(--red)'};direction:ltr">${money(r.operating)}₪</td>
       <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:13px;color:var(--txt-dim);direction:ltr">${fmt1(r.totalActiveAfter)}</td>
       <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;color:${growth==null?'var(--txt-faint)':growth>=0?'var(--accent)':'var(--red)'};direction:ltr">${growth==null?'—':(growth>=0?'+':'')+fmt1(growth)+'%'}</td>
+      ${driftTds}
     </tr>`;
   }).join('');
 }
 
-/* קוביית קלט אחת לסימולציה */
+/* בונה את הטבלה המלאה (thead+tbody) — כי מספר העמודות משתנה לפי הדריפט */
+function forecastTableHTML(s, monthsBack, eff, expectedThisMonth){
+  const cols = activeDriftCols();
+  const driftTh = cols.map(p=>`<th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">${p.short} ${p.money?'(₪)':''}</th>`).join('');
+  return `<table style="width:100%;border-collapse:collapse">
+    <thead><tr style="border-bottom:1px solid var(--line-soft)">
+      <th style="text-align:right;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">חודש</th>
+      <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--accent);font-weight:600">רווח תפעולי צפוי</th>
+      <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">לקוחות פעילים בסוף החודש</th>
+      <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">גדילה</th>
+      ${driftTh}
+    </tr></thead>
+    <tbody id="forecastSimBody">${buildForecastRows(s, monthsBack, eff, expectedThisMonth)}</tbody>
+  </table>`;
+}
+
+/* קוביית קלט אחת לערך בסיס */
 function forecastSimCell(key, label, affix, eff){
   const overridden = forecastSim[key]!=null;
   const val = eff[key];
@@ -1589,16 +1659,43 @@ function forecastSimCell(key, label, affix, eff){
   </div>`;
 }
 
-/* עדכון חי: בונה מחדש רק את גוף הטבלה + ההסבר הקצר, בלי לאבד פוקוס בקלט */
+/* קוביית דריפט אחת (% שינוי חודשי) */
+function forecastDriftCell(p){
+  const v = forecastSim.drift[p.key]||0;
+  const preset = (DRIFT_PRESETS[forecastSim.mode]||{})[p.key]||0;
+  const changed = v!==preset;
+  const sign = v>0?'+':'';
+  return `<div style="flex:1;min-width:138px;background:var(--bg-1);border:1px solid ${v!==0?(v>0?'var(--red)':'var(--accent)'):'var(--line-soft)'};border-radius:10px;padding:9px 10px;transition:border-color .15s">
+    <div style="font-size:10.5px;color:var(--txt-faint);margin-bottom:7px;line-height:1.35;min-height:28px">${p.label}<br><span style="color:var(--txt-faint);opacity:.7">% שינוי לחודש</span></div>
+    <div style="display:flex;align-items:center;gap:5px">
+      <div class="field" style="flex:1;min-width:0"><span class="affix">%</span>
+        <input type="number" step="1" value="${v}" data-fdkey="${p.key}" oninput="onForecastDriftInput(this)" style="width:100%;color:${v>0?'var(--red)':v<0?'var(--accent)':'var(--txt)'}"></div>
+      <button onclick="resetForecastDrift('${p.key}')" title="איפוס לפריסט" style="background:${changed?'var(--accent-soft)':'transparent'};border:1px solid var(--line-soft);color:${changed?'var(--accent)':'var(--txt-faint)'};border-radius:7px;width:28px;height:28px;cursor:pointer;flex-shrink:0;font-size:14px;line-height:1">↺</button>
+    </div>
+  </div>`;
+}
+
+/* עדכון חי: בונה מחדש את הטבלה (כי עמודות עשויות להופיע/להיעלם) + ההסבר */
 function rebuildForecastLive(){
   const s = state;
   const monthsBack = s.nextMonthMonthsBack || 3;
   const eff = forecastEffective(s, monthsBack);
   const expectedThisMonth = profitExpectedEndOfMonth(s).operating;
-  const body = document.getElementById('forecastSimBody');
-  if(body) body.innerHTML = buildForecastRows(s, monthsBack, eff, expectedThisMonth);
+  const wrap = document.getElementById('forecastTableWrap');
+  if(wrap) wrap.innerHTML = forecastTableHTML(s, monthsBack, eff, expectedThisMonth);
   const hint = document.getElementById('forecastSimHint');
-  if(hint) hint.innerHTML = `כל חודש מצטרפים ${fmt1(eff.avgCloses)} לקוחות חדשים (הקמות) ו-${fmt1(eff.avgJoined)} ריטיינרים חדשים. הם מצטברים לבסיס, פחות שחיקה של ${fmt1(s.churnRate)}% לחודש — ולכן הרווח גדל עם הזמן. <b style="color:var(--txt-dim)">שנה כל ערך בקוביות וצפה בטבלה מתעדכנת.</b>`;
+  if(hint){
+    const modeNote = forecastSim.mode==='realistic' ? '' :
+      ` <b style="color:${forecastSim.mode==='optimistic'?'var(--accent)':'var(--red)'}">(תחזית ${forecastSim.mode==='optimistic'?'אופטימית':'פסימית'} — הפרמטרים משתנים כל חודש לפי הדריפט)</b>`;
+    hint.innerHTML = `נקודת ההתחלה (חודש ראשון): ${fmt1(eff.avgCloses)} סגירות, ${fmt1(eff.avgJoined)} מצטרפים לריטיינר, שחיקה ${fmt1(s.churnRate)}% לחודש.${modeNote} <b style="color:var(--txt-dim)">שנה כל ערך בקוביות וצפה בטבלה מתעדכנת.</b>`;
+  }
+}
+
+/* החלפת מצב תחזית — מאפס את הדריפט לפריסט של המצב */
+function setForecastMode(mode){
+  forecastSim.mode = mode;
+  forecastSim.drift = { ...DRIFT_PRESETS[mode] };
+  navigate(currentPage);
 }
 
 /* קלט בקובייה — מעדכן override ומבנה מחדש את הטבלה */
@@ -1606,12 +1703,22 @@ function onForecastSimInput(input){
   const key = input.dataset.fckey;
   const v = input.value;
   forecastSim[key] = (v===''? null : (parseFloat(v)||0));
-  // עדכון מראה הקובייה (גבול + כפתור איפוס) בלי לרנדר מחדש את הקלט
   const overridden = forecastSim[key]!=null;
   const cell = document.querySelector(`[data-fccell="${key}"]`);
   if(cell) cell.style.borderColor = overridden ? 'var(--accent)' : 'var(--line-soft)';
   const btn = document.querySelector(`[data-fcreset="${key}"]`);
   if(btn){ btn.style.background = overridden?'var(--accent-soft)':'transparent'; btn.style.color = overridden?'var(--accent)':'var(--txt-faint)'; }
+  rebuildForecastLive();
+}
+
+/* קלט בקוביית דריפט — מעדכן % ומבנה מחדש (עמודה עשויה להופיע/להיעלם) */
+function onForecastDriftInput(input){
+  const key = input.dataset.fdkey;
+  const v = input.value;
+  forecastSim.drift[key] = (v===''? 0 : (parseFloat(v)||0));
+  input.style.color = forecastSim.drift[key]>0?'var(--red)':forecastSim.drift[key]<0?'var(--accent)':'var(--txt)';
+  const box = input.closest('[style*="min-width"]');
+  if(box) box.style.borderColor = forecastSim.drift[key]!==0 ? (forecastSim.drift[key]>0?'var(--red)':'var(--accent)') : 'var(--line-soft)';
   rebuildForecastLive();
 }
 
@@ -1630,55 +1737,63 @@ function resetForecastSim(key){
   rebuildForecastLive();
 }
 
+/* איפוס קוביית דריפט לפריסט של המצב */
+function resetForecastDrift(key){
+  forecastSim.drift[key] = (DRIFT_PRESETS[forecastSim.mode]||{})[key]||0;
+  navigate(currentPage); // רינדור מלא כדי לעדכן את ערך הקלט והעמודות
+}
+
 function renderForecast12(){
   const s = state;
   const monthsBack = s.nextMonthMonthsBack || 3;
 
-  // אפשרויות דרופדאון
+  // אפשרויות דרופדאון ממוצע
   const totalHistory = (s.mondayRaw && s.mondayRaw.history) ? s.mondayRaw.history.length : 6;
   let monthOpts = '';
   for(let i=1; i<=Math.min(totalHistory, 12); i++){
     monthOpts += `<option value="${i}" ${monthsBack===i?'selected':''}>${i===1?'חודש אחרון':i+' חודשים'}</option>`;
   }
+  // אפשרויות מצב
+  const modeOpts = [['realistic','ראלית'],['optimistic','אופטימית'],['pessimistic','פסימית']]
+    .map(([v,l])=>`<option value="${v}" ${forecastSim.mode===v?'selected':''}>${l}</option>`).join('');
 
-  // ערכי הסימולציה בפועל (override אם קיים, אחרת הממוצע המוגדר)
   const eff = forecastEffective(s, monthsBack);
   const expectedThisMonth = profitExpectedEndOfMonth(s).operating;
-  const tableRows = buildForecastRows(s, monthsBack, eff, expectedThisMonth);
 
-  // קוביות הסימולציה
+  // קוביות ערכי בסיס (6, תמיד גלויות)
   const cells = [
     forecastSimCell('avgJoined','חדשים שמצטרפים<br>לריטיינר / חודש','', eff),
     forecastSimCell('avgCloses','לקוחות חדשים<br>שסוגרים / חודש','', eff),
     forecastSimCell('acqCost','עלות גיוס לקוח','₪', eff),
     forecastSimCell('setupFee','מחיר הקמה','₪', eff),
     forecastSimCell('retainerForNew','ריטיינר<br>ללקוחות חדשים','₪', eff),
+    forecastSimCell('fixedCosts','הוצאות קבועות','₪', eff),
   ].join('');
+
+  // שורת דריפט (רק במצב לא-ראלי)
+  const driftRow = forecastSim.mode==='realistic' ? '' : `
+    <div style="font-size:11.5px;color:var(--txt-faint);margin:2px 0 8px">שינוי חודשי לכל פרמטר (אחוז — חיובי=עולה, שלילי=יורד). כל פרמטר עם שינוי ≠ 0 מקבל עמודה משלו בטבלה.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:9px;margin-bottom:14px">${DRIFT_PARAMS.map(forecastDriftCell).join('')}</div>`;
 
   return `
   <div class="card" style="margin-bottom:16px">
     <div class="card-h">
       <h3>תחזית ל-12 חודשים הבאים על סמך קצב הגדילה הנוכחי ${help('forecast12')}</h3>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:11.5px;color:var(--txt-faint)">
-      <span>קצב גדילה נוכחי מחושב על סמך:</span>
-      <select onchange="changeNextMonthMonthsBack(this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:5px;padding:3px 8px;font-size:12px">${monthOpts}</select>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;font-size:11.5px;color:var(--txt-faint)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span>קצב גדילה נוכחי מחושב על סמך:</span>
+        <select onchange="changeNextMonthMonthsBack(this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:5px;padding:3px 8px;font-size:12px">${monthOpts}</select>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span>מצב תחזית:</span>
+        <select onchange="setForecastMode(this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:5px;padding:3px 8px;font-size:12px">${modeOpts}</select>
+      </div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:9px;margin-bottom:14px">${cells}</div>
-    <div class="hint" id="forecastSimHint" style="margin-bottom:14px;line-height:1.6">
-      כל חודש מצטרפים ${fmt1(eff.avgCloses)} לקוחות חדשים (הקמות) ו-${fmt1(eff.avgJoined)} ריטיינרים חדשים. הם מצטברים לבסיס, פחות שחיקה של ${fmt1(s.churnRate)}% לחודש — ולכן הרווח גדל עם הזמן. <b style="color:var(--txt-dim)">שנה כל ערך בקוביות וצפה בטבלה מתעדכנת.</b>
-    </div>
-    <div style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse">
-      <thead><tr style="border-bottom:1px solid var(--line-soft)">
-        <th style="text-align:right;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">חודש</th>
-        <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--accent);font-weight:600">רווח תפעולי צפוי</th>
-        <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">לקוחות פעילים בסוף החודש</th>
-        <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">גדילה</th>
-      </tr></thead>
-      <tbody id="forecastSimBody">${tableRows}</tbody>
-    </table>
-    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:9px;margin-bottom:${forecastSim.mode==='realistic'?'14px':'12px'}">${cells}</div>
+    ${driftRow}
+    <div class="hint" id="forecastSimHint" style="margin-bottom:14px;line-height:1.6"></div>
+    <div id="forecastTableWrap" style="overflow-x:auto">${forecastTableHTML(s, monthsBack, eff, expectedThisMonth)}</div>
   </div>`;
 }
 
@@ -5232,7 +5347,7 @@ ${fmt1(r.avgNewJoined)} מצטרפים × ${money(c.retainerForNew)}₪ ריטי
       const detail = (r, label) => {
         const baseLayer = `${fmt1(r.payingOriginal)} מהבסיס המקורי × ${money(state.retainer)}₪ = <b>${money(r.retainerFromBase)}₪</b>`;
         const accLayer = r.retainerFromAccumulated > 0
-          ? `<br>+ ${fmt1(r.payingNewExisting)} לקוחות חדשים שהצטברו × ${money(eff.retainerForNew)}₪ = <b>${money(r.retainerFromAccumulated)}₪</b>`
+          ? `<br>+ ${fmt1(r.payingNewExisting)} לקוחות חדשים שהצטברו × ${money(r.retNewUsed)}₪ = <b>${money(r.retainerFromAccumulated)}₪</b>`
           : '';
         return `
 <b style="color:var(--accent)">━━━ ${label} ━━━</b><br><br>
@@ -5241,14 +5356,14 @@ ${baseLayer}${accLayer}<br>
 = ${money(r.activeRetainersAfterChurn)}₪ אחרי שחיקה (${fmt1((1-r.churnFactor)*100)}%)<br>
 − סליקה (${fmt1(c.procPct*100)}%): ${money(r.activeRetainersProcFee)}₪<br>
 <b>= ${money(r.activeRetainersNet)}₪</b> נקי מבסיס<br><br>
-<b>2. הקמות חדשות צפויות</b> (ממוצע ${n} חודשים)<br>
-${fmt1(r.avgClosesPerMonth)} לקוחות חדשים × ${money(eff.setupFee)}₪ הקמה = <b>${money(r.newSetupRevenue)}₪</b><br>
+<b>2. הקמות חדשות צפויות</b><br>
+${fmt1(r.avgClosesPerMonth)} לקוחות חדשים × ${money(r.setupFeeUsed)}₪ הקמה = <b>${money(r.newSetupRevenue)}₪</b><br>
 − עמלת מכירות (${fmt1(c.commPct*100)}%): ${money(r.newSetupSalesComm)}₪<br>
-− עלות גיוס מהשיווק (${fmt1(r.avgClosesPerMonth)} × ${money(eff.acqCost)}₪): ${money(r.newSetupAcqCost)}₪<br>
+− עלות גיוס מהשיווק (${fmt1(r.avgClosesPerMonth)} × ${money(r.acqCostUsed)}₪): ${money(r.newSetupAcqCost)}₪<br>
 − סליקה: ${money(r.newSetupProcFee)}₪<br>
 <b>= ${money(r.newSetupNet)}₪</b> נקי מהקמות<br><br>
-<b>3. ריטיינרים חדשים</b> (ממוצע ${n} חודשים)<br>
-${fmt1(r.avgNewJoined)} מצטרפים × ${money(eff.retainerForNew)}₪ ריטיינר חדש = <b>${money(r.newRetainerRevenue)}₪</b><br>
+<b>3. ריטיינרים חדשים</b><br>
+${fmt1(r.avgNewJoined)} מצטרפים × ${money(r.retNewUsed)}₪ ריטיינר חדש = <b>${money(r.newRetainerRevenue)}₪</b><br>
 − אונבורדינג (${fmt1(c.onbCommPct*100)}%): ${money(r.newRetainerOnbComm)}₪<br>
 − סליקה: ${money(r.newRetainerProcFee)}₪<br>
 <b>= ${money(r.newRetainerNet)}₪</b> נקי מריטיינרים חדשים<br><br>
@@ -5262,10 +5377,15 @@ ${fmt1(r.avgNewJoined)} מצטרפים × ${money(eff.retainerForNew)}₪ ריט
         const lbl = (m===1 ? 'בעוד חודש' : `בעוד ${m} חודשים`) + ' · ' + forecastMonthLabel(m);
         blocks += detail(r, lbl) + '<br><br>';
       }
-      const simNote = Object.values(forecastSim).some(v=>v!=null)
-        ? `<div style="color:var(--accent);font-size:12px;margin-bottom:10px">* החישוב משקף את ערכי הסימולציה שהזנת בקוביות, לא את הממוצע ההיסטורי.</div>` : '';
+      const hasOverride = ['avgCloses','avgJoined','acqCost','setupFee','retainerForNew','fixedCosts'].some(k=>forecastSim[k]!=null);
+      const modeName = forecastSim.mode==='optimistic'?'אופטימית':forecastSim.mode==='pessimistic'?'פסימית':'';
+      const driftList = forecastSim.mode!=='realistic'
+        ? DRIFT_PARAMS.filter(p=>(forecastSim.drift[p.key]||0)!==0).map(p=>`${p.short} ${forecastSim.drift[p.key]>0?'+':''}${forecastSim.drift[p.key]}%`).join(', ')
+        : '';
+      const simNote = (hasOverride || modeName)
+        ? `<div style="color:var(--accent);font-size:12px;margin-bottom:10px">* החישוב משקף${modeName?` תחזית <b>${modeName}</b>`:''}${driftList?` (שינוי חודשי: ${driftList})`:''}${hasOverride?(modeName?', ':' ')+'וערכי בסיס שהזנת ידנית':''}.</div>` : '';
       return `הערכת הרווח על סמך מגמות מ-${n} חודשים אחרונים.<br><br>${simNote}
-<b style="color:var(--txt)">למה הרווח גדל כל חודש?</b> כל חודש מצטרפים לקוחות חדשים שמשלמים ריטיינר חדש (${money(eff.retainerForNew)}₪), והם <b>מצטברים</b> לבסיס. הבסיס המקורי כמעט לא משתנה, אבל שכבת הלקוחות החדשים הולכת וגדלה - ולכן הרווח עולה.<br><br>${blocks}`;
+<b style="color:var(--txt)">למה הרווח גדל כל חודש?</b> כל חודש מצטרפים לקוחות חדשים שמשלמים ריטיינר חדש, והם <b>מצטברים</b> לבסיס. הבסיס המקורי כמעט לא משתנה, אבל שכבת הלקוחות החדשים הולכת וגדלה - ולכן הרווח עולה.<br><br>${blocks}`;
     },
     f:'(בסיס מקורי × ריטיינר ישן + מצטברים חדשים × ריטיינר חדש) × (1−שחיקה) − סליקה + הקמות + ריטיינרים חדשים − קבועות'},
   profitPctSummary:{t:'אחוז רווח מהמחזור',
