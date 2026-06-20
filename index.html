@@ -890,6 +890,20 @@ const fmt = n => !isFinite(n)?'∞':Math.round(n).toLocaleString('en-US');
 const fmt1 = n => !isFinite(n)?'∞':(Math.round(n*10)/10).toLocaleString('en-US');
 const money = n => fmt(n);
 
+/* שם חודש עברי + שנה מקוצרת, N חודשים קדימה מהחודש הנוכחי שבמאנדיי.
+   monthsAhead=1 → החודש הבא. נשען על state.mondayRaw.current.date (YYYY-MM-01). */
+const HEB_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+function forecastMonthLabel(monthsAhead){
+  // נקודת בסיס: תאריך החודש הנוכחי מהמאנדיי, אחרת היום
+  let base;
+  const cur = state.mondayRaw && state.mondayRaw.current && state.mondayRaw.current.date;
+  if(cur){ const p = String(cur).split('-'); base = new Date(parseInt(p[0]), parseInt(p[1])-1, 1); }
+  else { const t = new Date(); base = new Date(t.getFullYear(), t.getMonth(), 1); }
+  const d = new Date(base.getFullYear(), base.getMonth() + monthsAhead, 1);
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${HEB_MONTHS[d.getMonth()]} ${yy}`;
+}
+
 /* ============================================================
    אייקונים
 ============================================================ */
@@ -1520,12 +1534,18 @@ function renderForecast12(){
     monthOpts += `<option value="${i}" ${monthsBack===i?'selected':''}>${i===1?'חודש אחרון':i+' חודשים'}</option>`;
   }
 
+  // עוגן לגדילה של חודש 1 = הרווח הצפוי לסוף החודש הנוכחי (אותו חישוב מהכרטיס)
+  const expectedThisMonth = profitExpectedEndOfMonth(s).operating;
   const tableRows = rows.map((r,i) => {
     const month = i+1;
-    const prevOp = i>0 ? rows[i-1].operating : null;
+    // חודש 1 משווים לרווח הצפוי לסוף החודש הנוכחי; משם והלאה — לחודש שלפניו בטבלה
+    const prevOp = i>0 ? rows[i-1].operating : expectedThisMonth;
     const growth = prevOp!=null && prevOp!==0 ? ((r.operating-prevOp)/Math.abs(prevOp))*100 : null;
+    // תווית: "בעוד חודש" / "בעוד N חודשים" + שם החודש האמיתי והשנה
+    const aheadLabel = month===1 ? 'בעוד חודש' : `בעוד ${month} חודשים`;
+    const realMonth = forecastMonthLabel(month);
     return `<tr style="border-bottom:1px solid var(--line-soft)">
-      <td style="padding:11px 10px;font-size:13px;color:var(--txt)">חודש ${month}</td>
+      <td style="padding:11px 10px;font-size:13px;color:var(--txt)">${aheadLabel}<span style="color:var(--txt-faint);font-size:11.5px;margin-right:6px">${realMonth}</span></td>
       <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-weight:700;font-size:15px;color:${r.operating>=0?'var(--accent)':'var(--red)'};direction:ltr">${money(r.operating)}₪</td>
       <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:13px;color:var(--txt-dim);direction:ltr">${fmt1(r.totalActiveAfter)}</td>
       <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;color:${growth==null?'var(--txt-faint)':growth>=0?'var(--accent)':'var(--red)'};direction:ltr">${growth==null?'—':(growth>=0?'+':'')+fmt1(growth)+'%'}</td>
@@ -1535,11 +1555,10 @@ function renderForecast12(){
   return `
   <div class="card" style="margin-bottom:16px">
     <div class="card-h">
-      <h3>תחזית ל-12 חודשים הבאים</h3>
-      <span class="sub">לפי קצב הגדילה הנוכחי</span>
+      <h3>תחזית ל-12 חודשים הבאים על סמך קצב הגדילה הנוכחי ${help('forecast12')}</h3>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:11.5px;color:var(--txt-faint)">
-      <span>מחושב על סמך ממוצע:</span>
+      <span>קצב גדילה נוכחי מחושב על סמך:</span>
       <select onchange="changeNextMonthMonthsBack(this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:5px;padding:3px 8px;font-size:12px">${monthOpts}</select>
     </div>
     <div class="hint" style="margin-bottom:14px;line-height:1.6">
@@ -5099,6 +5118,47 @@ ${fmt1(r.avgNewJoined)} מצטרפים × ${money(c.retainerForNew)}₪ ריטי
       };
       return `הערכת הרווח על סמך מגמות מ-${n} חודשים אחרונים.<br><br>
 <b style="color:var(--txt)">למה הרווח גדל כל חודש?</b> כל חודש מצטרפים לקוחות חדשים שמשלמים ריטיינר חדש (${money(c.retainerForNew)}₪), והם <b>מצטברים</b> לבסיס. הבסיס המקורי כמעט לא משתנה, אבל שכבת הלקוחות החדשים הולכת וגדלה - ולכן הרווח עולה.<br><br>${detail(r1,'חודש הבא')}<br><br>${detail(r2,'בעוד '+ahead+' חודשים')}`;
+    },
+    f:'(בסיס מקורי × ריטיינר ישן + מצטברים חדשים × ריטיינר חדש) × (1−שחיקה) − סליקה + הקמות + ריטיינרים חדשים − קבועות'},
+  forecast12:{t:'איך מחושבת התחזית ל-12 חודשים',
+    body:()=>{
+      const n = state.nextMonthMonthsBack||3;
+      const c = compute();
+      const detail = (r, label) => {
+        const baseLayer = `${fmt1(r.payingOriginal)} מהבסיס המקורי × ${money(state.retainer)}₪ = <b>${money(r.retainerFromBase)}₪</b>`;
+        const accLayer = r.retainerFromAccumulated > 0
+          ? `<br>+ ${fmt1(r.payingNewExisting)} לקוחות חדשים שהצטברו × ${money(c.retainerForNew)}₪ = <b>${money(r.retainerFromAccumulated)}₪</b>`
+          : '';
+        return `
+<b style="color:var(--accent)">━━━ ${label} ━━━</b><br><br>
+<b>1. בסיס: ריטיינרים פעילים</b><br>
+${baseLayer}${accLayer}<br>
+= ${money(r.activeRetainersAfterChurn)}₪ אחרי שחיקה (${fmt1((1-r.churnFactor)*100)}%)<br>
+− סליקה (${fmt1(c.procPct*100)}%): ${money(r.activeRetainersProcFee)}₪<br>
+<b>= ${money(r.activeRetainersNet)}₪</b> נקי מבסיס<br><br>
+<b>2. הקמות חדשות צפויות</b> (ממוצע ${n} חודשים)<br>
+${fmt1(r.avgClosesPerMonth)} לקוחות חדשים × ${money(state.setupFee)}₪ הקמה = <b>${money(r.newSetupRevenue)}₪</b><br>
+− עמלת מכירות (${fmt1(c.commPct*100)}%): ${money(r.newSetupSalesComm)}₪<br>
+− עלות גיוס מהשיווק (${fmt1(r.avgClosesPerMonth)} × ${money(c.acqCost)}₪): ${money(r.newSetupAcqCost)}₪<br>
+− סליקה: ${money(r.newSetupProcFee)}₪<br>
+<b>= ${money(r.newSetupNet)}₪</b> נקי מהקמות<br><br>
+<b>3. ריטיינרים חדשים</b> (ממוצע ${n} חודשים)<br>
+${fmt1(r.avgNewJoined)} מצטרפים × ${money(c.retainerForNew)}₪ ריטיינר חדש = <b>${money(r.newRetainerRevenue)}₪</b><br>
+− אונבורדינג (${fmt1(c.onbCommPct*100)}%): ${money(r.newRetainerOnbComm)}₪<br>
+− סליקה: ${money(r.newRetainerProcFee)}₪<br>
+<b>= ${money(r.newRetainerNet)}₪</b> נקי מריטיינרים חדשים<br><br>
+<b>4. הוצאות קבועות</b><br>
+− ${money(r.fixedCosts)}₪<br><br>
+<b style="color:var(--accent);font-size:14px">סך רווח תפעולי: ${money(r.operating)}₪</b>`;
+      };
+      let blocks = '';
+      for(let m=1; m<=12; m++){
+        const r = profitNextMonth(state, n, m);
+        const lbl = (m===1 ? 'בעוד חודש' : `בעוד ${m} חודשים`) + ' · ' + forecastMonthLabel(m);
+        blocks += detail(r, lbl) + '<br><br>';
+      }
+      return `הערכת הרווח על סמך מגמות מ-${n} חודשים אחרונים.<br><br>
+<b style="color:var(--txt)">למה הרווח גדל כל חודש?</b> כל חודש מצטרפים לקוחות חדשים שמשלמים ריטיינר חדש (${money(c.retainerForNew)}₪), והם <b>מצטברים</b> לבסיס. הבסיס המקורי כמעט לא משתנה, אבל שכבת הלקוחות החדשים הולכת וגדלה - ולכן הרווח עולה.<br><br>${blocks}`;
     },
     f:'(בסיס מקורי × ריטיינר ישן + מצטברים חדשים × ריטיינר חדש) × (1−שחיקה) − סליקה + הקמות + ריטיינרים חדשים − קבועות'},
   profitPctSummary:{t:'אחוז רווח מהמחזור',
