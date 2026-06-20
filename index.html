@@ -336,6 +336,7 @@ const DEFAULTS = {
   retainersIncomeSoFar: 0,        // סכום ריטיינרים שנכנסו עד היום
   setupIncomeSoFar: 0,            // סכום הקמות שנכנסו עד היום
   joinedRetainer: 0,              // לקוחות שהצטרפו לריטיינר החודש
+  snapshots: [],                  // זכרונות תחזית — תצלומים שמורים להשוואה למציאות
   history:[
     {label:'חודש −1', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
     {label:'חודש −2', budget:'', leads:'', closes:'', setupRev:'', retainerRev:''},
@@ -619,7 +620,8 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
   const retForNew   = (ov && ov.retainerForNew!=null) ? ov.retainerForNew : c.retainerForNew;
   const setupFeeEff = (ov && ov.setupFee!=null)       ? ov.setupFee       : s.setupFee;
   const acqCostEff  = (ov && ov.acqCost!=null)        ? ov.acqCost        : c.acqCost;
-  const churnRate = (s.churnRate||0)/100;  // אחוז שחיקה חודשי (קבוע)
+  const commPctBase = (ov && ov.salesCommPct!=null)  ? ov.salesCommPct/100 : c.commPct;  // עמלת מכירות (שבר)
+  const churnBase   = (ov && ov.churnRate!=null)      ? ov.churnRate/100    : (s.churnRate||0)/100;  // שחיקה (שבר)
   const fixedCostsBase = (ov && ov.fixedCosts!=null) ? ov.fixedCosts : (s.fixedCosts || 0);
   // === דריפט: שינוי חודשי באחוזים לכל פרמטר (תחזית אופטימית/פסימית) ===
   const drift = (ov && ov.drift) || {};
@@ -639,9 +641,11 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
     const setupM   = grow(setupFeeEff,       'setupFee', m);
     const acqM     = grow(acqCostEff,        'acqCost', m);
     const fixedM   = grow(fixedCostsBase,    'fixedCosts', m);
+    const churnM   = grow(churnBase,         'churnRate', m);     // שחיקה לחודש הזה (שבר)
+    const commPctM = grow(commPctBase,       'salesCommPct', m);  // עמלת מכירות לחודש הזה (שבר)
     // שחיקה - מתפזרת לחצי החודש (חצי משלמים, חצי לא)
-    const leavingOriginal = originalBase * churnRate;
-    const leavingNew = newAccumulated * churnRate;
+    const leavingOriginal = originalBase * churnM;
+    const leavingNew = newAccumulated * churnM;
     const payingOriginal = originalBase - leavingOriginal/2;
     const payingNewExisting = newAccumulated - leavingNew/2;
     // הכנסה מריטיינרים פעילים
@@ -652,7 +656,7 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
     const baseNet = totalActiveRetainers - procFeeBase;
     // הקמות חדשות
     const newSetupRevenue = closesM * setupM;
-    const newSetupSalesComm = newSetupRevenue * c.commPct;
+    const newSetupSalesComm = newSetupRevenue * commPctM;
     const newSetupAcqCost = closesM * acqM;
     const newSetupProcFee = newSetupRevenue * c.procPct;
     const newSetupNet = newSetupRevenue - newSetupSalesComm - newSetupAcqCost - newSetupProcFee;
@@ -669,7 +673,7 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
       monthsAhead: m, monthsBack,
       avgClosesPerMonth: closesM, avgNewJoined: joinedM,
       activeRetainersGross: totalActiveRetainers + (leavingOriginal/2)*s.retainer + (leavingNew/2)*retNewM,
-      churnFactor: 1 - churnRate/2,
+      churnFactor: 1 - churnM/2,
       activeRetainersAfterChurn: totalActiveRetainers,
       activeRetainersProcFee: procFeeBase,
       activeRetainersNet: baseNet,
@@ -684,6 +688,7 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
       // === ערכי הפרמטרים בפועל לחודש הזה (לעמודות הדריפט) ===
       acqCostUsed: acqM, setupFeeUsed: setupM, retNewUsed: retNewM,
       closesUsed: closesM, joinedUsed: joinedM, fixedCostsUsed: fixedM,
+      salesCommPctUsed: commPctM*100, churnRateUsed: churnM*100,
       operating,
       // נתונים על הבסיס בסוף החודש (originalBase/newAccumulated כבר עודכנו למעלה)
       activeOriginalAfter: originalBase,
@@ -914,15 +919,21 @@ const money = n => fmt(n);
 /* שם חודש עברי + שנה מקוצרת, N חודשים קדימה מהחודש הנוכחי שבמאנדיי.
    monthsAhead=1 → החודש הבא. נשען על state.mondayRaw.current.date (YYYY-MM-01). */
 const HEB_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-function forecastMonthLabel(monthsAhead){
+function forecastMonthDate(monthsAhead){
   // נקודת בסיס: תאריך החודש הנוכחי מהמאנדיי, אחרת היום
   let base;
   const cur = state.mondayRaw && state.mondayRaw.current && state.mondayRaw.current.date;
   if(cur){ const p = String(cur).split('-'); base = new Date(parseInt(p[0]), parseInt(p[1])-1, 1); }
   else { const t = new Date(); base = new Date(t.getFullYear(), t.getMonth(), 1); }
-  const d = new Date(base.getFullYear(), base.getMonth() + monthsAhead, 1);
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${HEB_MONTHS[d.getMonth()]} ${yy}`;
+  return new Date(base.getFullYear(), base.getMonth() + monthsAhead, 1);
+}
+function forecastMonthLabel(monthsAhead){
+  const d = forecastMonthDate(monthsAhead);
+  return `${HEB_MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`;
+}
+function forecastMonthKey(monthsAhead){
+  const d = forecastMonthDate(monthsAhead);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
 /* ============================================================
@@ -1528,8 +1539,9 @@ function changeNextMonthMonthsBack(val){
   // שינוי הממוצע מאפס רק את דריסות הערכים — המצב והדריפט נשמרים
   forecastSim.avgCloses=null; forecastSim.avgJoined=null; forecastSim.acqCost=null;
   forecastSim.setupFee=null; forecastSim.retainerForNew=null; forecastSim.fixedCosts=null;
+  forecastSim.salesCommPct=null; forecastSim.churnRate=null;
   saveState();
-  navigate(currentPage);
+  refreshForecastCard();
 }
 
 function changeNextMonthAhead(val){
@@ -1546,8 +1558,8 @@ function changeNextMonthAhead(val){
 ============================================================ */
 let forecastSim = {
   mode: 'realistic',
-  avgCloses:null, avgJoined:null, acqCost:null, setupFee:null, retainerForNew:null, fixedCosts:null,
-  drift: { avgCloses:0, avgJoined:0, acqCost:0, setupFee:0, retainerForNew:0, fixedCosts:0 },
+  avgCloses:null, avgJoined:null, acqCost:null, setupFee:null, retainerForNew:null, fixedCosts:null, salesCommPct:null, churnRate:null,
+  drift: { avgCloses:0, avgJoined:0, acqCost:0, setupFee:0, retainerForNew:0, fixedCosts:0, salesCommPct:0, churnRate:0 },
 };
 
 /* מטא-דאטה לכל פרמטר שניתן לדריפט (סדר העמודות והקוביות) */
@@ -1558,12 +1570,14 @@ const DRIFT_PARAMS = [
   {key:'setupFee',       label:'מחיר הקמה',        short:'הקמה',       affix:'₪', resKey:'setupFeeUsed',   money:true},
   {key:'retainerForNew', label:'ריטיינר חדש',      short:'ריטיינר',    affix:'₪', resKey:'retNewUsed',     money:true},
   {key:'fixedCosts',     label:'הוצאות קבועות',    short:'קבועות',     affix:'₪', resKey:'fixedCostsUsed', money:true},
+  {key:'salesCommPct',   label:'עמלת מכירות',      short:'עמלת מכ׳',   affix:'%', resKey:'salesCommPctUsed', money:false, pct:true},
+  {key:'churnRate',      label:'אחוז שחיקה',       short:'שחיקה',      affix:'%', resKey:'churnRateUsed',   money:false, pct:true},
 ];
 /* פריסטים לדריפט — רק עלות גיוס זזה כברירת מחדל */
 const DRIFT_PRESETS = {
-  realistic:   { avgJoined:0, avgCloses:0, acqCost:0,  setupFee:0, retainerForNew:0, fixedCosts:0 },
-  optimistic:  { avgJoined:0, avgCloses:0, acqCost:-3, setupFee:0, retainerForNew:0, fixedCosts:0 },
-  pessimistic: { avgJoined:0, avgCloses:0, acqCost:5,  setupFee:0, retainerForNew:0, fixedCosts:0 },
+  realistic:   { avgJoined:0, avgCloses:0, acqCost:0,  setupFee:0, retainerForNew:0, fixedCosts:0, salesCommPct:0, churnRate:0 },
+  optimistic:  { avgJoined:0, avgCloses:0, acqCost:-3, setupFee:0, retainerForNew:0, fixedCosts:0, salesCommPct:0, churnRate:0 },
+  pessimistic: { avgJoined:0, avgCloses:0, acqCost:5,  setupFee:0, retainerForNew:0, fixedCosts:0, salesCommPct:0, churnRate:0 },
 };
 
 /* ערכי ברירת המחדל לפי הממוצע המוגדר (monthsBack) */
@@ -1577,6 +1591,8 @@ function forecastDefaults(s, monthsBack){
     setupFee: s.setupFee,
     retainerForNew: c.retainerForNew,
     fixedCosts: s.fixedCosts || 0,
+    salesCommPct: s.salesCommPct || 0,
+    churnRate: s.churnRate || 0,
   };
 }
 /* הדריפט הפעיל בפועל (רק במצב לא-ראלי) */
@@ -1596,6 +1612,7 @@ function forecastEffective(s, monthsBack){
     avgCloses: pick('avgCloses'), avgJoined: pick('avgJoined'),
     acqCost: pick('acqCost'), setupFee: pick('setupFee'),
     retainerForNew: pick('retainerForNew'), fixedCosts: pick('fixedCosts'),
+    salesCommPct: pick('salesCommPct'), churnRate: pick('churnRate'),
     drift: activeDrift(),
     _defaults: d,
   };
@@ -1606,31 +1623,63 @@ function buildForecastRows(s, monthsBack, eff, expectedThisMonth){
   const cols = activeDriftCols();
   const rows = [];
   for(let N=1;N<=12;N++) rows.push(profitNextMonth(s, monthsBack, N, eff));
+  // החודש הראשון שבו הרווח התפעולי מגיע ליעד (אם מוגדר יעד חיובי)
+  const goal = state.goalProfit || 0;
+  const goalIdx = goal>0 ? rows.findIndex(r => r.operating >= goal) : -1;
   return rows.map((r,i)=>{
     const month=i+1;
     const prevOp = i>0 ? rows[i-1].operating : expectedThisMonth;
     const growth = prevOp!=null && prevOp!==0 ? ((r.operating-prevOp)/Math.abs(prevOp))*100 : null;
     const aheadLabel = month===1 ? 'בעוד חודש' : `בעוד ${month} חודשים`;
     const realMonth = forecastMonthLabel(month);
-    const driftTds = cols.map(p=>{
+    // === הדגשת חודש היעד ===
+    const isGoal = i===goalIdx;
+    const gTB = isGoal ? 'border-top:2px solid var(--accent);border-bottom:2px solid var(--accent);' : '';
+    const gBG = isGoal ? 'background:var(--accent-soft);' : '';
+    const gR  = isGoal ? 'border-right:2px solid var(--accent);' : '';
+    const gL  = isGoal ? 'border-left:2px solid var(--accent);' : '';
+    const goalTag = isGoal ? `<div style="font-size:10px;color:var(--accent);font-weight:700;margin-top:3px">✓ החודש שבו תפגוש את היעד</div>` : '';
+    const driftTds = cols.map((p,ci)=>{
       const v = r[p.resKey];
-      const shown = p.money ? money(v)+'₪' : fmt1(v);
-      return `<td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;color:var(--txt-faint);direction:ltr">${shown}</td>`;
+      const shown = p.money ? money(v)+'₪' : (p.pct ? fmt1(v)+'%' : fmt1(v));
+      const last = ci===cols.length-1;
+      return `<td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;color:var(--txt-faint);direction:ltr;${gTB}${gBG}${last?gL:''}">${shown}</td>`;
     }).join('');
+    const growthLast = cols.length===0; // עמודת הגדילה היא האחרונה רק אם אין עמודות דריפט
     return `<tr style="border-bottom:1px solid var(--line-soft)">
-      <td style="padding:11px 10px;font-size:13px;color:var(--txt)">${aheadLabel}<span style="color:var(--txt-faint);font-size:11.5px;margin-right:6px">${realMonth}</span></td>
-      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-weight:700;font-size:15px;color:${r.operating>=0?'var(--accent)':'var(--red)'};direction:ltr">${money(r.operating)}₪</td>
-      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:13px;color:var(--txt-dim);direction:ltr">${fmt1(r.totalActiveAfter)}</td>
-      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;color:${growth==null?'var(--txt-faint)':growth>=0?'var(--accent)':'var(--red)'};direction:ltr">${growth==null?'—':(growth>=0?'+':'')+fmt1(growth)+'%'}</td>
+      <td style="padding:11px 10px;font-size:13px;color:var(--txt);${gTB}${gBG}${gR}">${aheadLabel}<span style="color:var(--txt-faint);font-size:11.5px;margin-right:6px">${realMonth}</span>${goalTag}</td>
+      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-weight:700;font-size:15px;color:${r.operating>=0?'var(--accent)':'var(--red)'};direction:ltr;${gTB}${gBG}">${money(r.operating)}₪</td>
+      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:13px;color:var(--txt-dim);direction:ltr;${gTB}${gBG}">${fmt1(r.totalActiveAfter)}</td>
+      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;color:${growth==null?'var(--txt-faint)':growth>=0?'var(--accent)':'var(--red)'};direction:ltr;${gTB}${gBG}${growthLast?gL:''}">${growth==null?'—':(growth>=0?'+':'')+fmt1(growth)+'%'}</td>
       ${driftTds}
     </tr>`;
   }).join('');
 }
 
+/* טקסט ההסבר הקצר מתחת לקוביות — כולל מתי נפגוש את היעד */
+function forecastHintHTML(s, monthsBack, eff){
+  const modeNote = forecastSim.mode==='realistic' ? '' :
+    ` <b style="color:${forecastSim.mode==='optimistic'?'var(--accent)':'var(--red)'}">(תחזית ${forecastSim.mode==='optimistic'?'אופטימית':'פסימית'} — הפרמטרים משתנים כל חודש לפי הדריפט)</b>`;
+  // מתי נפגוש את היעד
+  let goalNote = '';
+  const goal = s.goalProfit || 0;
+  if(goal>0){
+    const rows=[]; for(let N=1;N<=12;N++) rows.push(profitNextMonth(s, monthsBack, N, eff));
+    const idx = rows.findIndex(r => r.operating >= goal);
+    if(idx>=0){
+      const lbl = idx===0 ? 'כבר בחודש הבא' : `בעוד ${idx+1} חודשים (${forecastMonthLabel(idx+1)})`;
+      goalNote = `<br><b style="color:var(--accent)">✓ בקצב הזה תפגוש את יעד ${money(goal)}₪ ${lbl}.</b>`;
+    } else {
+      goalNote = `<br><b style="color:var(--txt-faint)">בקצב הזה לא תגיע ליעד ${money(goal)}₪ תוך 12 חודשים.</b>`;
+    }
+  }
+  return `נקודת ההתחלה (חודש ראשון): ${fmt1(eff.avgCloses)} סגירות, ${fmt1(eff.avgJoined)} מצטרפים לריטיינר, שחיקה ${fmt1(s.churnRate)}% לחודש.${modeNote} <b style="color:var(--txt-dim)">שנה כל ערך בקוביות וצפה בטבלה מתעדכנת.</b>${goalNote}`;
+}
+
 /* בונה את הטבלה המלאה (thead+tbody) — כי מספר העמודות משתנה לפי הדריפט */
 function forecastTableHTML(s, monthsBack, eff, expectedThisMonth){
   const cols = activeDriftCols();
-  const driftTh = cols.map(p=>`<th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">${p.short} ${p.money?'(₪)':''}</th>`).join('');
+  const driftTh = cols.map(p=>`<th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">${p.short} ${p.money?'(₪)':p.pct?'(%)':''}</th>`).join('');
   return `<table style="width:100%;border-collapse:collapse">
     <thead><tr style="border-bottom:1px solid var(--line-soft)">
       <th style="text-align:right;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">חודש</th>
@@ -1643,17 +1692,19 @@ function forecastTableHTML(s, monthsBack, eff, expectedThisMonth){
   </table>`;
 }
 
+/* שדות שמוצגים עם ספרה עשרונית אחת (כמויות ואחוזים) */
+const FC_ONE_DEC = ['avgCloses','avgJoined','salesCommPct','churnRate'];
 /* קוביית קלט אחת לערך בסיס */
 function forecastSimCell(key, label, affix, eff){
   const overridden = forecastSim[key]!=null;
   const val = eff[key];
-  const isCount = (key==='avgCloses'||key==='avgJoined');
-  const shown = isCount ? (Math.round(val*10)/10) : Math.round(val);
+  const isDec = FC_ONE_DEC.includes(key);
+  const shown = isDec ? (Math.round(val*10)/10) : Math.round(val);
   return `<div data-fccell="${key}" style="flex:1;min-width:138px;background:var(--bg-2);border:1px solid ${overridden?'var(--accent)':'var(--line-soft)'};border-radius:10px;padding:9px 10px;transition:border-color .15s">
     <div style="font-size:10.5px;color:var(--txt-faint);margin-bottom:7px;line-height:1.35;min-height:28px">${label}</div>
     <div style="display:flex;align-items:center;gap:5px">
       <div class="field" style="flex:1;min-width:0">${affix?`<span class="affix">${affix}</span>`:''}
-        <input type="number" step="${isCount?'0.5':'1'}" value="${shown}" data-fckey="${key}" oninput="onForecastSimInput(this)" style="width:100%"></div>
+        <input type="number" step="${isDec?'0.5':'1'}" value="${shown}" data-fckey="${key}" oninput="onForecastSimInput(this)" style="width:100%"></div>
       <button onclick="resetForecastSim('${key}')" title="איפוס לממוצע המוגדר" data-fcreset="${key}" style="background:${overridden?'var(--accent-soft)':'transparent'};border:1px solid var(--line-soft);color:${overridden?'var(--accent)':'var(--txt-faint)'};border-radius:7px;width:28px;height:28px;cursor:pointer;flex-shrink:0;font-size:14px;line-height:1">↺</button>
     </div>
   </div>`;
@@ -1684,18 +1735,21 @@ function rebuildForecastLive(){
   const wrap = document.getElementById('forecastTableWrap');
   if(wrap) wrap.innerHTML = forecastTableHTML(s, monthsBack, eff, expectedThisMonth);
   const hint = document.getElementById('forecastSimHint');
-  if(hint){
-    const modeNote = forecastSim.mode==='realistic' ? '' :
-      ` <b style="color:${forecastSim.mode==='optimistic'?'var(--accent)':'var(--red)'}">(תחזית ${forecastSim.mode==='optimistic'?'אופטימית':'פסימית'} — הפרמטרים משתנים כל חודש לפי הדריפט)</b>`;
-    hint.innerHTML = `נקודת ההתחלה (חודש ראשון): ${fmt1(eff.avgCloses)} סגירות, ${fmt1(eff.avgJoined)} מצטרפים לריטיינר, שחיקה ${fmt1(s.churnRate)}% לחודש.${modeNote} <b style="color:var(--txt-dim)">שנה כל ערך בקוביות וצפה בטבלה מתעדכנת.</b>`;
-  }
+  if(hint) hint.innerHTML = forecastHintHTML(s, monthsBack, eff);
 }
 
 /* החלפת מצב תחזית — מאפס את הדריפט לפריסט של המצב */
+/* מרענן רק את כרטיס התחזית במקום — מונע גלילה למעלה בעת שינוי דרופדאון/מצב */
+function refreshForecastCard(){
+  const el = document.getElementById('forecastCard');
+  if(el){ el.outerHTML = renderForecast12(); if(typeof autoSizeInputs==='function') autoSizeInputs(); }
+  else navigate(currentPage);
+}
+
 function setForecastMode(mode){
   forecastSim.mode = mode;
   forecastSim.drift = { ...DRIFT_PRESETS[mode] };
-  navigate(currentPage);
+  refreshForecastCard();
 }
 
 /* קלט בקובייה — מעדכן override ומבנה מחדש את הטבלה */
@@ -1727,9 +1781,9 @@ function resetForecastSim(key){
   forecastSim[key] = null;
   const s = state, monthsBack = s.nextMonthMonthsBack||3;
   const d = forecastDefaults(s, monthsBack);
-  const isCount = (key==='avgCloses'||key==='avgJoined');
+  const isDec = FC_ONE_DEC.includes(key);
   const input = document.querySelector(`[data-fckey="${key}"]`);
-  if(input) input.value = isCount ? (Math.round(d[key]*10)/10) : Math.round(d[key]);
+  if(input) input.value = isDec ? (Math.round(d[key]*10)/10) : Math.round(d[key]);
   const cell = document.querySelector(`[data-fccell="${key}"]`);
   if(cell) cell.style.borderColor = 'var(--line-soft)';
   const btn = document.querySelector(`[data-fcreset="${key}"]`);
@@ -1740,7 +1794,7 @@ function resetForecastSim(key){
 /* איפוס קוביית דריפט לפריסט של המצב */
 function resetForecastDrift(key){
   forecastSim.drift[key] = (DRIFT_PRESETS[forecastSim.mode]||{})[key]||0;
-  navigate(currentPage); // רינדור מלא כדי לעדכן את ערך הקלט והעמודות
+  refreshForecastCard(); // רינדור הכרטיס בלבד כדי לעדכן את ערך הקלט והעמודות
 }
 
 function renderForecast12(){
@@ -1768,6 +1822,8 @@ function renderForecast12(){
     forecastSimCell('setupFee','מחיר הקמה','₪', eff),
     forecastSimCell('retainerForNew','ריטיינר<br>ללקוחות חדשים','₪', eff),
     forecastSimCell('fixedCosts','הוצאות קבועות','₪', eff),
+    forecastSimCell('salesCommPct','עמלת מכירות','%', eff),
+    forecastSimCell('churnRate','אחוז שחיקה','%', eff),
   ].join('');
 
   // שורת דריפט (רק במצב לא-ראלי)
@@ -1776,7 +1832,7 @@ function renderForecast12(){
     <div style="display:flex;flex-wrap:wrap;gap:9px;margin-bottom:14px">${DRIFT_PARAMS.map(forecastDriftCell).join('')}</div>`;
 
   return `
-  <div class="card" style="margin-bottom:16px">
+  <div class="card" id="forecastCard" style="margin-bottom:16px">
     <div class="card-h">
       <h3>תחזית ל-12 חודשים הבאים על סמך קצב הגדילה הנוכחי ${help('forecast12')}</h3>
     </div>
@@ -1789,11 +1845,145 @@ function renderForecast12(){
         <span>מצב תחזית:</span>
         <select onchange="setForecastMode(this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:5px;padding:3px 8px;font-size:12px">${modeOpts}</select>
       </div>
+      <button onclick="saveForecastSnapshot()" style="display:flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-right:auto">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        שמור תחזית
+      </button>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:9px;margin-bottom:${forecastSim.mode==='realistic'?'14px':'12px'}">${cells}</div>
     ${driftRow}
-    <div class="hint" id="forecastSimHint" style="margin-bottom:14px;line-height:1.6"></div>
+    <div class="hint" id="forecastSimHint" style="margin-bottom:14px;line-height:1.6">${forecastHintHTML(s, monthsBack, eff)}</div>
     <div id="forecastTableWrap" style="overflow-x:auto">${forecastTableHTML(s, monthsBack, eff, expectedThisMonth)}</div>
+  </div>`;
+}
+
+/* ============================================================
+   זכרונות תחזית — תצלומים שמורים + השוואה אוטומטית למציאות
+============================================================ */
+
+/* שומר תצלום של התחזית הנוכחית (12 חודשים) */
+function saveForecastSnapshot(){
+  if(!state.mondayRaw || !state.mondayRaw.current){ toast('צריך נתוני מאנדיי כדי לשמור תחזית'); return; }
+  if(!state.snapshots) state.snapshots=[];
+  const s=state, monthsBack=s.nextMonthMonthsBack||3;
+  const eff=forecastEffective(s, monthsBack);
+  const months=[];
+  for(let N=1;N<=12;N++){
+    const r=profitNextMonth(s, monthsBack, N, eff);
+    months.push({ key:forecastMonthKey(N), label:forecastMonthLabel(N), operating:Math.round(r.operating), activeEnd:Math.round(r.totalActiveAfter) });
+  }
+  state.snapshots.push({
+    id: Date.now(),
+    takenAt: new Date().toISOString(),
+    mode: forecastSim.mode,
+    monthsBack,
+    drift: activeDrift() ? {...activeDrift()} : {},
+    months,
+  });
+  saveState();
+  toast('התחזית נשמרה לזכרונות');
+  navigate(currentPage);
+}
+
+function deleteSnapshot(id){
+  if(!confirm('למחוק את התצלום הזה? פעולה זו בלתי הפיכה.')) return;
+  state.snapshots = (state.snapshots||[]).filter(x=>x.id!==id);
+  saveState();
+  toast('התצלום נמחק');
+  navigate(currentPage);
+}
+
+function toggleSnapshotView(id){
+  const d=document.getElementById('snapDetail'+id);
+  const c=document.getElementById('snapChev'+id);
+  if(!d) return;
+  const open=d.style.display!=='none';
+  d.style.display=open?'none':'block';
+  if(c) c.style.transform=open?'rotate(0deg)':'rotate(-90deg)';
+}
+
+/* מחזיר את הרווח התפעולי בפועל לחודש מסוים (YYYY-MM) מנתוני המאנדיי */
+function actualForMonth(monthKey){
+  const raw=state.mondayRaw;
+  if(!raw || !raw.current) return {status:'future'};
+  const keyOf = d => d ? String(d).slice(0,7) : null;
+  const curKey = keyOf(raw.current.date);
+  if(curKey===monthKey) return {status:'current', value: profitSoFar(state).operating};
+  if(Array.isArray(raw.history)){
+    const m = raw.history.find(h=>keyOf(h.date)===monthKey);
+    if(m && m.operatingProfit!=null) return {status:'done', value:m.operatingProfit};
+  }
+  if(curKey && monthKey < curKey) return {status:'missing'};
+  return {status:'future'};
+}
+
+/* טבלת ההשוואה של תצלום בודד — חזית מול בפועל מול פער */
+function snapshotComparisonHTML(snap){
+  const rows = snap.months.map(m=>{
+    const a = actualForMonth(m.key);
+    let actualCell, gapCell;
+    if(a.status==='done'){
+      const gap = a.value - m.operating;
+      const pct = m.operating!==0 ? (gap/Math.abs(m.operating))*100 : null;
+      const col = gap>=0?'var(--accent)':'var(--red)';
+      actualCell = `<b>${money(a.value)}₪</b>`;
+      gapCell = `<span style="color:${col}">${gap>=0?'+':''}${money(gap)}₪${pct!=null?` (${gap>=0?'+':''}${fmt1(pct)}%)`:''}</span>`;
+    } else if(a.status==='current'){
+      actualCell = `${money(a.value)}₪ <span style="color:var(--txt-faint);font-size:10px">(בתהליך)</span>`;
+      gapCell = '<span style="color:var(--txt-faint)">—</span>';
+    } else if(a.status==='future'){
+      actualCell = '<span style="color:var(--txt-faint)">ממתין</span>'; gapCell='<span style="color:var(--txt-faint)">—</span>';
+    } else {
+      actualCell = '<span style="color:var(--txt-faint)">אין נתונים</span>'; gapCell='<span style="color:var(--txt-faint)">—</span>';
+    }
+    return `<tr style="border-bottom:1px solid var(--line-soft)">
+      <td style="padding:9px 10px;font-size:12.5px;color:var(--txt)">${m.label}</td>
+      <td style="padding:9px 10px;text-align:center;font-family:'Rubik';font-size:13px;color:var(--txt-dim);direction:ltr">${money(m.operating)}₪</td>
+      <td style="padding:9px 10px;text-align:center;font-family:'Rubik';font-size:13px;direction:ltr">${actualCell}</td>
+      <td style="padding:9px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;direction:ltr">${gapCell}</td>
+    </tr>`;
+  }).join('');
+  return `<table style="width:100%;border-collapse:collapse;min-width:480px">
+    <thead><tr style="border-bottom:1px solid var(--line-soft)">
+      <th style="text-align:right;padding:8px 10px;font-size:11px;color:var(--txt-faint)">חודש</th>
+      <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--txt-faint)">מה חזית</th>
+      <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--accent)">בפועל</th>
+      <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--txt-faint)">פער</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/* כרטיס הזכרונות — רשימת תצלומים, כל אחד נפתח להשוואה */
+function renderForecastMemories(){
+  const snaps = state.snapshots || [];
+  if(!snaps.length){
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-h"><h3>זכרונות תחזית</h3><span class="tag blue">השוואת תחזית למציאות</span></div>
+      <p class="hint" style="line-height:1.6">עדיין לא שמרת תחזיות. לחץ <b>"שמור תחזית"</b> בכרטיס התחזית למעלה כדי לצלם את התחזית הנוכחית — ובעתיד תוכל לראות כאן אם הגעת למה שחזית. כל תצלום משווה את עצמו אוטומטית למה שקרה בפועל.</p>
+    </div>`;
+  }
+  const items = snaps.slice().reverse().map(snap=>{
+    const dt = new Date(snap.takenAt);
+    const dateStr = `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`;
+    const modeName = snap.mode==='optimistic'?'אופטימית':snap.mode==='pessimistic'?'פסימית':'ראלית';
+    const driftActive = DRIFT_PARAMS.filter(p=>(snap.drift||{})[p.key]).map(p=>`${p.short} ${snap.drift[p.key]>0?'+':''}${snap.drift[p.key]}%`).join(', ');
+    return `<div style="border:1px solid var(--line-soft);border-radius:10px;margin-bottom:10px;overflow:hidden">
+      <div onclick="toggleSnapshotView(${snap.id})" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;cursor:pointer;background:var(--bg-2);gap:10px">
+        <div style="min-width:0">
+          <div style="font-weight:600;font-size:14px">תחזית מ-${dateStr}</div>
+          <div class="hint" style="margin-top:2px">מצב ${modeName} · ממוצע ${snap.monthsBack===1?'חודש אחרון':snap.monthsBack+' חודשים'}${driftActive?' · '+driftActive:''}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          <button onclick="event.stopPropagation();deleteSnapshot(${snap.id})" style="background:transparent;border:1px solid var(--line-soft);color:var(--txt-faint);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">מחק</button>
+          <span id="snapChev${snap.id}" style="display:inline-block;transition:transform .2s;font-size:12px;color:var(--txt-faint)">▼</span>
+        </div>
+      </div>
+      <div id="snapDetail${snap.id}" style="display:none;padding:12px 14px;overflow-x:auto;border-top:1px solid var(--line-soft)">${snapshotComparisonHTML(snap)}</div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>זכרונות תחזית</h3><span class="tag blue">השוואת תחזית למציאות</span></div>
+    <p class="hint" style="margin-bottom:14px;line-height:1.6">כל תצלום שומר את התחזית כפי שהייתה באותו רגע, ומשווה את עצמו למה שקרה בפועל. חודשים שכבר עברו מתמלאים אוטומטית מנתוני המאנדיי; עתידיים מסומנים "ממתין".</p>
+    ${items}
   </div>`;
 }
 
@@ -1862,7 +2052,8 @@ function renderDashboard(){
     </div>
   </div>
   ${renderLeadsCapacityCard(plan, 'מבוסס על היעד הנוכחי')}
-  ${renderForecast12()}`;
+  ${renderForecast12()}
+  ${renderForecastMemories()}`;
 }
 
 /* ============================================================
@@ -5322,7 +5513,7 @@ ${baseLayer}${accLayer}<br>
 <b>= ${money(r.activeRetainersNet)}₪</b> נקי מבסיס<br><br>
 <b>2. הקמות חדשות צפויות</b> (ממוצע ${n} חודשים)<br>
 ${fmt1(r.avgClosesPerMonth)} לקוחות חדשים × ${money(state.setupFee)}₪ הקמה = <b>${money(r.newSetupRevenue)}₪</b><br>
-− עמלת מכירות (${fmt1(c.commPct*100)}%): ${money(r.newSetupSalesComm)}₪<br>
+− עמלת מכירות (${fmt1(r.salesCommPctUsed)}%): ${money(r.newSetupSalesComm)}₪<br>
 − עלות גיוס מהשיווק (${fmt1(r.avgClosesPerMonth)} × ${money(c.acqCost)}₪): ${money(r.newSetupAcqCost)}₪<br>
 − סליקה: ${money(r.newSetupProcFee)}₪<br>
 <b>= ${money(r.newSetupNet)}₪</b> נקי מהקמות<br><br>
@@ -5358,7 +5549,7 @@ ${baseLayer}${accLayer}<br>
 <b>= ${money(r.activeRetainersNet)}₪</b> נקי מבסיס<br><br>
 <b>2. הקמות חדשות צפויות</b><br>
 ${fmt1(r.avgClosesPerMonth)} לקוחות חדשים × ${money(r.setupFeeUsed)}₪ הקמה = <b>${money(r.newSetupRevenue)}₪</b><br>
-− עמלת מכירות (${fmt1(c.commPct*100)}%): ${money(r.newSetupSalesComm)}₪<br>
+− עמלת מכירות (${fmt1(r.salesCommPctUsed)}%): ${money(r.newSetupSalesComm)}₪<br>
 − עלות גיוס מהשיווק (${fmt1(r.avgClosesPerMonth)} × ${money(r.acqCostUsed)}₪): ${money(r.newSetupAcqCost)}₪<br>
 − סליקה: ${money(r.newSetupProcFee)}₪<br>
 <b>= ${money(r.newSetupNet)}₪</b> נקי מהקמות<br><br>
