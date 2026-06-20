@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+.fc-cells{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+@media(max-width:760px){.fc-cells{grid-template-columns:repeat(2,minmax(0,1fr))}}
 :root{
   --bg:#0a0e14; --bg-2:#0f1521; --panel:#141b2b; --panel-2:#1a2233;
   --line:#243047; --line-soft:#1c2535;
@@ -1829,7 +1831,7 @@ function renderForecast12(){
   // שורת דריפט (רק במצב לא-ראלי)
   const driftRow = forecastSim.mode==='realistic' ? '' : `
     <div style="font-size:11.5px;color:var(--txt-faint);margin:2px 0 8px">שינוי חודשי לכל פרמטר (אחוז — חיובי=עולה, שלילי=יורד). כל פרמטר עם שינוי ≠ 0 מקבל עמודה משלו בטבלה.</div>
-    <div style="display:flex;flex-wrap:wrap;gap:9px;margin-bottom:14px">${DRIFT_PARAMS.map(forecastDriftCell).join('')}</div>`;
+    <div class="fc-cells" style="margin-bottom:14px">${DRIFT_PARAMS.map(forecastDriftCell).join('')}</div>`;
 
   return `
   <div class="card" id="forecastCard" style="margin-bottom:16px">
@@ -1850,7 +1852,7 @@ function renderForecast12(){
         שמור תחזית
       </button>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:9px;margin-bottom:${forecastSim.mode==='realistic'?'14px':'12px'}">${cells}</div>
+    <div class="fc-cells" style="margin-bottom:${forecastSim.mode==='realistic'?'14px':'12px'}">${cells}</div>
     ${driftRow}
     <div class="hint" id="forecastSimHint" style="margin-bottom:14px;line-height:1.6">${forecastHintHTML(s, monthsBack, eff)}</div>
     <div id="forecastTableWrap" style="overflow-x:auto">${forecastTableHTML(s, monthsBack, eff, expectedThisMonth)}</div>
