@@ -664,10 +664,10 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1){
       newRetainerRevenue, newRetainerOnbComm, newRetainerProcFee, newRetainerNet,
       fixedCosts,
       operating,
-      // נתונים על הבסיס בסוף החודש
-      activeOriginalAfter: originalBase - leavingOriginal,
-      activeNewAfter: newAccumulated - leavingNew + avgNewJoined,
-      totalActiveAfter: (originalBase - leavingOriginal) + (newAccumulated - leavingNew + avgNewJoined),
+      // נתונים על הבסיס בסוף החודש (originalBase/newAccumulated כבר עודכנו למעלה)
+      activeOriginalAfter: originalBase,
+      activeNewAfter: newAccumulated,
+      totalActiveAfter: originalBase + newAccumulated,
     };
   }
   return lastMonthResult;
