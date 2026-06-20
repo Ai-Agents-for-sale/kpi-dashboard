@@ -1500,6 +1500,65 @@ function changeNextMonthAhead(val){
   navigate(currentPage);
 }
 
+function renderForecast12(){
+  const s = state;
+  const monthsBack = s.nextMonthMonthsBack || 3;
+  // ממוצע סגירות ומצטרפים (לתצוגת ההסבר)
+  const c = compute(s);
+
+  // מריצים את הסימולציה ל-12 חודשים, אוספים כל חודש
+  const rows = [];
+  for(let N=1; N<=12; N++){
+    const r = profitNextMonth(s, monthsBack, N);
+    rows.push(r);
+  }
+
+  // אפשרויות דרופדאון
+  const totalHistory = (s.mondayRaw && s.mondayRaw.history) ? s.mondayRaw.history.length : 6;
+  let monthOpts = '';
+  for(let i=1; i<=Math.min(totalHistory, 12); i++){
+    monthOpts += `<option value="${i}" ${monthsBack===i?'selected':''}>${i===1?'חודש אחרון':i+' חודשים'}</option>`;
+  }
+
+  const tableRows = rows.map((r,i) => {
+    const month = i+1;
+    const prevOp = i>0 ? rows[i-1].operating : null;
+    const growth = prevOp!=null && prevOp!==0 ? ((r.operating-prevOp)/Math.abs(prevOp))*100 : null;
+    return `<tr style="border-bottom:1px solid var(--line-soft)">
+      <td style="padding:11px 10px;font-size:13px;color:var(--txt)">חודש ${month}</td>
+      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-weight:700;font-size:15px;color:${r.operating>=0?'var(--accent)':'var(--red)'};direction:ltr">${money(r.operating)}₪</td>
+      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:13px;color:var(--txt-dim);direction:ltr">${fmt1(r.totalActiveAfter)}</td>
+      <td style="padding:11px 10px;text-align:center;font-family:'Rubik';font-size:12.5px;color:${growth==null?'var(--txt-faint)':growth>=0?'var(--accent)':'var(--red)'};direction:ltr">${growth==null?'—':(growth>=0?'+':'')+fmt1(growth)+'%'}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h">
+      <h3>תחזית ל-12 חודשים הבאים</h3>
+      <span class="sub">לפי קצב הגדילה הנוכחי</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:11.5px;color:var(--txt-faint)">
+      <span>מחושב על סמך ממוצע:</span>
+      <select onchange="changeNextMonthMonthsBack(this.value)" style="background:var(--bg-1);color:var(--txt);border:1px solid var(--line-soft);border-radius:5px;padding:3px 8px;font-size:12px">${monthOpts}</select>
+    </div>
+    <div class="hint" style="margin-bottom:14px;line-height:1.6">
+      כל חודש מצטרפים בממוצע ${fmt1(rows[0].avgClosesPerMonth)} לקוחות חדשים (הקמות) ו-${fmt1(rows[0].avgNewJoined)} ריטיינרים חדשים. הם מצטברים לבסיס, פחות שחיקה של ${fmt1(s.churnRate)}% לחודש — ולכן הרווח גדל עם הזמן.
+    </div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid var(--line-soft)">
+        <th style="text-align:right;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">חודש</th>
+        <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--accent);font-weight:600">רווח תפעולי צפוי</th>
+        <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">לקוחות פעילים בסוף החודש</th>
+        <th style="text-align:center;padding:9px 10px;font-size:11px;color:var(--txt-faint);font-weight:600">גדילה</th>
+      </tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    </div>
+  </div>`;
+}
+
 function renderDashboard(){
   const c=compute();
   const plan=planFromClients(clientsForProfit(state.goalProfit));
@@ -1564,7 +1623,8 @@ function renderDashboard(){
       <span style="font-family:'Rubik';font-size:24px;font-weight:800;color:var(--accent)">${money(plan.operating)} ₪</span>
     </div>
   </div>
-  ${renderLeadsCapacityCard(plan, 'מבוסס על היעד הנוכחי')}`;
+  ${renderLeadsCapacityCard(plan, 'מבוסס על היעד הנוכחי')}
+  ${renderForecast12()}`;
 }
 
 /* ============================================================
@@ -3160,24 +3220,20 @@ function renderInsights(){
       // הרעיון: המהלך לא נמדד לפי כמה לקוחות גויסו (החודש לא נגמר),
       // אלא לפי כמה *עולה* לגייס לקוח. אם הורדת הקמה -> יותר אנשים סוגרים -> CAC נמוך יותר
       // -> מאותו תקציב שיווק מגייסים יותר לקוחות.
-      // CAC = תקציב שיווק ÷ כמות סגירות
+      // CAC = תקציב שיווק ÷ כמות סגירות (לכל תקופה - התקציב האמיתי שלה)
       const isSetupMove = (mv.param.key === 'setupAvg');
       let cacBefore = (budgetBefore > 0 && realClosesBefore > 0) ? budgetBefore/realClosesBefore : c.acqCost;
       let cacAfter = (budgetAfter > 0 && realClosesAfter > 0) ? budgetAfter/realClosesAfter : c.acqCost;
       const useCac = isSetupMove && cacBefore > 0 && cacAfter > 0 && budgetBefore > 0 && budgetAfter > 0;
 
-      // תקציב שיווק קבוע להשוואה הוגנת (הנוכחי)
-      const fixedBudget = state.actBudget || budgetAfter || budgetBefore || 0;
+      // כמות לקוחות = הסגירות האמיתיות של כל תקופה (לפי התקציב האמיתי שלה)
+      // עלות הגיוס היא יחס (תקציב÷סגירות), והתקציב לא משפיע עליה - אז כל תקופה עם הנתון האמיתי שלה
       let oldClosesPerMonth, newClosesPerMonth;
-      if(useCac && fixedBudget > 0){
-        // כמה לקוחות מגייסים מאותו תקציב, לפי ה-CAC של כל תקופה
-        oldClosesPerMonth = fixedBudget / cacBefore;
-        newClosesPerMonth = fixedBudget / cacAfter;
-      } else {
-        // ברירת מחדל - הסגירות האמיתיות (לפני = ממוצע, אחרי = החודש בפועל)
-        oldClosesPerMonth = realClosesBefore;
-        newClosesPerMonth = realClosesAfter;
-      }
+      oldClosesPerMonth = realClosesBefore;
+      newClosesPerMonth = realClosesAfter;
+      // התקציב של כל תקופה (לתצוגה)
+      const budgetOld = budgetBefore;
+      const budgetNew = budgetAfter;
 
       // נחשב את רווח הלקוח לפני ואחרי (נטו)
       const setupNetOld = oldSetup * (1 - oldCommPct);
@@ -3242,10 +3298,9 @@ function renderInsights(){
           ${useCac ? `<div style="background:rgba(124,143,255,.08);border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;line-height:1.7">
             <b style="color:var(--txt)">למה לפי עלות גיוס לקוח (CAC)?</b><br>
             כי החודש עוד לא נגמר, אז אי אפשר להשוות כמות לקוחות. במקום זה משווים <b>כמה עולה לגייס לקוח אחד</b>.<br><br>
-            <b>איך מחושב CAC:</b> תקציב שיווק ÷ כמות לקוחות שנסגרו.<br>
+            <b>איך מחושב CAC:</b> תקציב שיווק ÷ כמות לקוחות שנסגרו. כל תקופה עם התקציב האמיתי שלה (גודל התקציב לא משפיע על עלות הגיוס — היא יחס).<br>
             • לפני: ${money(budgetBefore)}₪ תקציב ÷ ${fmt1(realClosesBefore)} סגירות = <b>${money(cacBefore)}₪</b> ללקוח<br>
-            • אחרי: ${money(budgetAfter)}₪ תקציב ÷ ${fmt1(realClosesAfter)} סגירות = <b>${money(cacAfter)}₪</b> ללקוח<br><br>
-            ואז: מאותו תקציב שיווק (${money(fixedBudget)}₪) רואים כמה לקוחות מגייסים לפי ה-CAC של כל תקופה.
+            • אחרי: ${money(budgetAfter)}₪ תקציב ÷ ${fmt1(realClosesAfter)} סגירות = <b>${money(cacAfter)}₪</b> ללקוח
           </div>` : `<div style="background:rgba(247,184,1,.08);border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;line-height:1.7">
             <b style="color:var(--txt)">מבוסס על כמות הסגירות בפועל</b> (אין מספיק נתוני תקציב שיווק לחישוב עלות גיוס). לפני = ממוצע החודשים שלפני המהלך, אחרי = החודש שבו המהלך קרה.
           </div>`}
@@ -3260,7 +3315,7 @@ function renderInsights(){
             <div>+ (${money(retainerNetOld)}₪ ריטיינר נטו × ${fmt1(avgMonths)} חודשים) = <b style="color:var(--txt)">${money(retainerNetOld*avgMonths)}₪</b> מריטיינר</div>
             <div>= <b style="color:var(--txt)">${money(ltvOld)}₪ רווח כולל מלקוח</b></div>
             ${useCac
-              ? `<div style="margin-top:4px">עלות גיוס לקוח ${money(cacBefore)}₪ → מתקציב ${money(fixedBudget)}₪ מגייסים <b style="color:var(--txt)">${fmt1(oldClosesPerMonth)} לקוחות</b></div>`
+              ? `<div style="margin-top:4px">עלות גיוס לקוח ${money(cacBefore)}₪ → מתקציב ${money(budgetOld)}₪ נסגרו <b style="color:var(--txt)">${fmt1(oldClosesPerMonth)} לקוחות</b></div>`
               : `<div style="margin-top:4px"><b style="color:var(--txt)">${fmt1(oldClosesPerMonth)} לקוחות</b> בחודש</div>`}
             <div>${money(ltvOld)}₪ × ${fmt1(oldClosesPerMonth)} = <b style="color:var(--accent);font-size:16px">${money(monthlyOld)}₪</b></div>
           </div>
@@ -3271,7 +3326,7 @@ function renderInsights(){
             <div>+ (${money(retainerNetNew)}₪ ריטיינר נטו × ${fmt1(avgMonths)} חודשים) = <b style="color:var(--txt)">${money(retainerNetNew*avgMonths)}₪</b> מריטיינר</div>
             <div>= <b style="color:var(--txt)">${money(ltvNew)}₪ רווח כולל מלקוח</b></div>
             ${useCac
-              ? `<div style="margin-top:4px">עלות גיוס לקוח ${money(cacAfter)}₪ → מתקציב ${money(fixedBudget)}₪ מגייסים <b style="color:var(--txt)">${fmt1(newClosesPerMonth)} לקוחות</b></div>`
+              ? `<div style="margin-top:4px">עלות גיוס לקוח ${money(cacAfter)}₪ → מתקציב ${money(budgetNew)}₪ נסגרו <b style="color:var(--txt)">${fmt1(newClosesPerMonth)} לקוחות</b></div>`
               : `<div style="margin-top:4px"><b style="color:var(--txt)">${fmt1(newClosesPerMonth)} לקוחות</b> בחודש</div>`}
             <div>${money(ltvNew)}₪ × ${fmt1(newClosesPerMonth)} = <b style="color:var(--accent);font-size:16px">${money(monthlyNew)}₪</b></div>
           </div>
