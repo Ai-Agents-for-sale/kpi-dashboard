@@ -623,7 +623,7 @@ function profitNextMonth(s = state, monthsBack, monthsAhead = 1, ov){
   const fixedCostsBase = (ov && ov.fixedCosts!=null) ? ov.fixedCosts : (s.fixedCosts || 0);
   // === דריפט: שינוי חודשי באחוזים לכל פרמטר (תחזית אופטימית/פסימית) ===
   const drift = (ov && ov.drift) || {};
-  const grow = (base, key, m) => base * Math.pow(1 + (drift[key]||0)/100, m-1);
+  const grow = (base, key, m) => base * Math.pow(1 + (drift[key]||0)/100, m);
 
   // === סימולציה חודש-אחר-חודש ===
   // הבסיס המקורי משלם s.retainer הישן, חדשים שגויסו משלמים c.retainerForNew החדש
