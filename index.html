@@ -2120,12 +2120,12 @@ function renderGoals(){
   <div class="card">
     <div class="card-h"><h3>${T('goal_breakdown','פירוק היעד — חודשי מול יומי')} ${help('goalBreakdown')}</h3><span class="sub">הגעה ליעד על סמך לקוחות חדשים בלבד</span></div>
     <div style="background:rgba(247,184,1,.08);border:1px solid rgba(247,184,1,.2);border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12.5px;color:var(--txt-dim);line-height:1.6">
-      <b style="color:var(--amber)">💡 שים לב:</b> הפירוק הזה מתחשב <b>רק בסכום הריטיינרים מהלקוחות הפעילים</b> (${state.activeClients} לקוחות × ${money(state.retainer)}₪ = ${money(state.activeClients*state.retainer)}₪ בחודש). הוא לא לוקח בחשבון את ההקמות שכבר נכנסו החודש. בשביל לראות כמה צריך מהיום עד סוף החודש ביחס למה שכבר קרה — תסתכל בטבלאות "השוואה למה שקרה בפועל" למטה.
+      <b style="color:var(--amber)">💡 שים לב:</b> הפירוק הזה מתחשב <b>רק בסכום הריטיינרים מהלקוחות הפעילים</b> (${state.activeClients} לקוחות × ${money(state.retainer)}₪ = ${money(state.activeClients*state.retainer)}₪ בחודש). הוא לא לוקח בחשבון את ההקמות שכבר נכנסו החודש. בשביל לראות כמה צריך מהיום עד סוף החודש ביחס למה שכבר קרה — תסתכל בטבלאות "השוואה למה שקרה בפועל" למטה. ${help('goalBreakdownMath')}
     </div>
     <div style="margin-bottom:8px"><span class="tag green">רווח חודש הצטרפות מלקוח חדש: <b style="font-family:'Rubik';direction:ltr">${money(profitFromOneNewClient())}₪</b></span>
       <span class="hint" style="display:inline;margin-right:8px">הקמה ${money(state.setupFee)}₪ + ריטיינר חדש ${money(state.retainerNew||state.retainer)}₪ פחות עמלות וסליקה ${help('firstMonthProfit')}</span></div>
     <div style="margin-bottom:14px"><span class="tag purple">אחוז המרה אפקטיבי: <span id="effShow"></span></span>
-      <span class="hint" style="display:inline;margin-right:8px">${state.answerRate}% לידים שמבצעים להם שיחות × ${state.closeRate}% סגירה — שנה בנתוני בסיס</span></div>
+      <span class="hint" style="display:inline;margin-right:8px">${Math.round(state.answerRate)}% לידים שמבצעים להם שיחות × ${Math.round(state.closeRate)}% סגירה — שנה בנתוני בסיס</span></div>
     <div class="brk" id="brkBox"></div>
   </div>
 
@@ -2922,12 +2922,12 @@ function refreshSalesDerived(){
       <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:16px">
         <div style="display:flex;align-items:center;gap:8px;color:var(--txt-dim);font-size:12.5px;margin-bottom:6px"><span style="color:var(--accent)">${svg('target')}</span> אחוז המרה ביעד (נתוני בסיס)</div>
         <div style="font-family:'Rubik';font-size:30px;font-weight:800;color:var(--accent);direction:ltr;text-align:right">${fmt1(baseEff)}%</div>
-        <div class="hint">${state.answerRate}% לידים שמבצעים להם שיחות × ${state.closeRate}% סגירה · נדרשים ${fmt1(plan.clients)} לקוחות</div>
+        <div class="hint">${Math.round(state.answerRate)}% לידים שמבצעים להם שיחות × ${Math.round(state.closeRate)}% סגירה · נדרשים ${fmt1(plan.clients)} לקוחות</div>
       </div>
       <div style="background:var(--bg-2);border:1px solid var(--line-soft);border-radius:12px;padding:16px">
         <div style="display:flex;align-items:center;gap:8px;color:var(--txt-dim);font-size:12.5px;margin-bottom:6px"><span style="color:${behind?'var(--red)':'var(--blue)'}">${svg('users')}</span> אחוז המרה בפועל (ממוצע הצוות)</div>
         <div style="font-family:'Rubik';font-size:30px;font-weight:800;color:${behind?'var(--red)':'var(--blue)'};direction:ltr;text-align:right">${fmt1(actualEff)}%</div>
-        <div class="hint">${state.answerRate}% לידים שמבצעים להם שיחות × ${fmt1(avgRepClose)}% סגירה ממוצע · בפועל ${fmt1(actualClients)} לקוחות</div>
+        <div class="hint">${Math.round(state.answerRate)}% לידים שמבצעים להם שיחות × ${fmt1(avgRepClose)}% סגירה ממוצע · בפועל ${fmt1(actualClients)} לקוחות</div>
       </div></div>
     ${behind? `<div class="notice warn" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>אחוז ההמרה בפועל (<b>${fmt1(actualEff)}%</b>) נמוך מהיעד (<b>${fmt1(baseEff)}%</b>). באותו תקציב תקבל <b>${fmt1(actualClients)}</b> לקוחות במקום ${fmt1(plan.clients)} — פער של <b>${money(plan.operating-actualPlan.operating)}₪</b> ברווח.</div></div>`
       : `<div class="notice ok" style="margin-top:14px;margin-bottom:0">${svg('info')}<div>הצוות עומד באחוז ההמרה של היעד.</div></div>`}`);
@@ -5437,6 +5437,54 @@ ${fmt(capacity)} שיחות × ${fmt1(state.closeRate)}% סגירה = <b>${fmt1(
 <b>רווח תפעולי צפוי:</b> ${money(r.operating)}₪`;
     },
     f:'(פעילים × ריטיינר × (1−שחיקה/2)) + הקמות שנכנסו − עלויות (כולל שיווק חודשי מלא)'},
+  goalBreakdownMath:{t:'איך מחושב פירוק היעד — צעד אחר צעד',
+    body:()=>{
+      const s=state, c=compute(s);
+      const plan=planFromClients(clientsForProfit(s.goalProfit, s), s);
+      // שלב 1 — רווח מלקוח חדש בודד
+      const rev1=s.setupFee + c.retainerForNew;
+      const sComm=s.setupFee*c.commPct;
+      const oComm=c.retainerForNew*c.onbCommPct;
+      const pFee=rev1*c.procPct;
+      const profitPerNew=rev1 - c.acqCost - sComm - oComm - pFee;
+      // שלב 2 — רווח נטו מהבסיס הקיים
+      const baseGross=c.monthlyRetainerFromBase;
+      const baseNet=baseGross*(1-c.procPct);
+      // שלב 3 — לקוחות נדרשים
+      const cover=s.goalProfit + s.fixedCosts - baseNet;
+      const clients=plan.clients;
+      return `כל המספרים כאן חיים — לפי נתוני הבסיס שלך כרגע.<br><br>
+<b style="color:var(--accent)">━━━ שלב 1: כמה רווח מביא לקוח חדש אחד ━━━</b><br>
+הקמה ${money(s.setupFee)}₪ + ריטיינר חדש ${money(c.retainerForNew)}₪ = <b>${money(rev1)}₪</b> הכנסה<br>
+− שיווק לגיוס (${fmt1(c.leadsPerClient)} לידים × ${money(s.costPerLead)}₪): ${money(c.acqCost)}₪<br>
+− עמלת מכירה (${fmt1(c.commPct*100)}% מההקמה): ${money(sComm)}₪<br>
+− אונבורדינג (${fmt1(c.onbCommPct*100)}% מהריטיינר): ${money(oComm)}₪<br>
+− סליקה (${fmt1(c.procPct*100)}%): ${money(pFee)}₪<br>
+<b>= ${money(profitPerNew)}₪ רווח מלקוח חדש</b><br><br>
+
+<b style="color:var(--accent)">━━━ שלב 2: כמה רווח כבר מגיע מהבסיס הקיים ━━━</b><br>
+${state.activeClients} לקוחות פעילים, ${fmt1(c.churnPct*100)}% שחיקה → ${fmt1(c.activePayingThisMonth)} משלמים החודש<br>
+× ${money(s.retainer)}₪ ריטיינר ישן = ${money(baseGross)}₪<br>
+− סליקה (${fmt1(c.procPct*100)}%): ${money(baseGross-baseNet)}₪<br>
+<b>= ${money(baseNet)}₪ רווח נטו מהבסיס</b><br><br>
+
+<b style="color:var(--accent)">━━━ שלב 3: כמה לקוחות חדשים צריך לסגור ━━━</b><br>
+צריך לכסות: יעד רווח ${money(s.goalProfit)}₪ + הוצאות קבועות ${money(s.fixedCosts)}₪ − רווח מהבסיס ${money(baseNet)}₪<br>
+= <b>${money(cover)}₪</b> שצריך להביא מלקוחות חדשים<br>
+÷ ${money(profitPerNew)}₪ רווח ללקוח חדש<br>
+<b style="color:var(--accent)">= ${fmt1(clients)} לקוחות חדשים</b> (זו עמודת "מכירות")<br><br>
+
+<b style="color:var(--accent)">━━━ שלב 4: מלקוחות ללידים, שיחות ותקציב ━━━</b><br>
+אחוז המרה אפקטיבי = ${Math.round(s.answerRate)}% (לידים שמבצעים להם שיחות) × ${Math.round(s.closeRate)}% (סגירה) = <b>${fmt1(c.effConv*100)}%</b><br>
+לידים = ${fmt1(clients)} לקוחות ÷ ${fmt1(c.effConv*100)}% = <b>${fmt(plan.leads)}</b><br>
+שיחות = ${fmt1(clients)} לקוחות ÷ ${Math.round(s.closeRate)}% סגירה = <b>${fmt(plan.calls)}</b><br>
+תקציב שיווק = ${fmt(plan.leads)} לידים × ${money(s.costPerLead)}₪ = <b>${money(plan.marketing)}₪</b><br><br>
+
+<b style="color:var(--accent)">━━━ שלב 5: חלוקה יומית ━━━</b><br>
+כל ערך חודשי ÷ ${s.daysMonth} ימי עבודה בחודש = הערך היומי.<br>
+לדוגמה: ${fmt(plan.leads)} לידים ÷ ${s.daysMonth} = ${fmt1(plan.leads/s.daysMonth)} לידים ביום.`;
+    },
+    f:'לקוחות = (יעד + קבועות − ריטיינר נטו מהבסיס) ÷ רווח ללקוח חדש · לידים = לקוחות ÷ המרה אפקטיבית · שיחות = לקוחות ÷ אחוז סגירה · תקציב = לידים × מחיר ליד'},
   goalBreakdown:{t:'איך מחושב פירוק היעד',
     body:()=>`<b>חשוב להבין:</b> הפירוק כאן הוא <b>חישוב תיאורטי</b> כאילו מתחילים חודש חדש.<br><br>
 החישוב לוקח:<br>
